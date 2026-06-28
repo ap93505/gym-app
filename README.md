@@ -48,7 +48,7 @@ npm run dev:ngrok
 指令會自動：
 
 1. 建立到本機 3000 port 的 HTTPS tunnel。
-2. 將公開網址設為本次程序的 `NEXT_PUBLIC_APP_URL`。
+2. 將公開網址設為本次程序的 `APP_URL`。
 3. 啟動 Next.js。
 4. 顯示 LINE Callback、帳號資訊及打卡上課的完整網址。
 
@@ -57,7 +57,7 @@ npm run dev:ngrok
 填寫 `.env.local`：
 
 ```dotenv
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+APP_URL=http://localhost:3000
 LINE_CHANNEL_ID=你的_LINE_Login_Channel_ID
 LINE_CHANNEL_SECRET=你的_LINE_Login_Channel_Secret
 SESSION_SECRET=至少32字元的隨機值
@@ -102,7 +102,7 @@ gcloud run deploy ray-gym `
   --region asia-east1 `
   --allow-unauthenticated `
   --service-account ray-gym-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com `
-  --set-env-vars NEXT_PUBLIC_APP_URL=https://YOUR_DOMAIN,LINE_CHANNEL_ID=YOUR_CHANNEL_ID,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID `
+  --set-env-vars APP_URL=https://YOUR_DOMAIN,LINE_CHANNEL_ID=YOUR_CHANNEL_ID,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,FIRESTORE_DATABASE_ID='(default)' `
   --set-secrets LINE_CHANNEL_SECRET=line-channel-secret:latest,SESSION_SECRET=session-secret:latest
 ```
 

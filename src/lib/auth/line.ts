@@ -17,7 +17,7 @@ export function safeReturnTo(value: string | null) {
 
 export async function exchangeLineCode(code: string, verifier: string) {
   const env = getServerEnv();
-  const redirectUri = `${env.NEXT_PUBLIC_APP_URL}/api/auth/line/callback`;
+  const redirectUri = `${env.APP_URL}/api/auth/line/callback`;
   const response = await fetch("https://api.line.me/oauth2/v2.1/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },

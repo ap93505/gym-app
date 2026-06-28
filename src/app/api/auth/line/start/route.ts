@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     authorize.search = new URLSearchParams({
       response_type: "code",
       client_id: env.LINE_CHANNEL_ID,
-      redirect_uri: `${env.NEXT_PUBLIC_APP_URL}/api/auth/line/callback`,
+      redirect_uri: `${env.APP_URL}/api/auth/line/callback`,
       state,
       scope: "openid profile",
       nonce,

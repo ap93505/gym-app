@@ -57,7 +57,7 @@ try {
 
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
   child = spawn(npmCommand, ["run", "dev", "--", "--port", String(port)], {
-    env: { ...process.env, NEXT_PUBLIC_APP_URL: publicUrl, PORT: String(port) },
+    env: { ...process.env, APP_URL: publicUrl, PORT: String(port) },
     stdio: "inherit",
     shell: process.platform === "win32",
   });
