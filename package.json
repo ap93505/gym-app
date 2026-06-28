@@ -1,0 +1,36 @@
+{
+  "name": "ray-gym",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "dev:ngrok": "node scripts/dev-ngrok.mjs",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@fullcalendar/daygrid": "^6.1.21",
+    "@fullcalendar/interaction": "^6.1.21",
+    "@fullcalendar/react": "^6.1.21",
+    "@fullcalendar/timegrid": "^6.1.21",
+    "firebase-admin": "14.1.0",
+    "jose": "6.2.3",
+    "next": "16.2.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@ngrok/ngrok": "^1.7.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.2.9",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.0"
+  }
+}
