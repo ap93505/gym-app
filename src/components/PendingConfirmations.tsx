@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { formatDate, type SessionItem } from "./SessionList";
 
 const reasons = [
@@ -9,6 +10,7 @@ const reasons = [
 ];
 
 export function PendingConfirmations() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [message, setMessage] = useState("");
@@ -35,12 +37,12 @@ export function PendingConfirmations() {
       body: JSON.stringify({ outcome: value, reason: form.reason || undefined, note: form.note || undefined }),
     });
     const body = await response.json(); setMessage(response.ok ? "課程結果已確認" : body.error?.message ?? "操作失敗");
-    if (response.ok) await load();
+    if (response.ok) { await load(); router.refresh(); }
   }
   async function backfill(session: SessionItem) {
     const response = await fetch(`/api/sessions/${session.id}/check-in`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId: session.studentId }) });
     const body = await response.json(); setMessage(response.ok ? "已補登報到，現在可以確認完成" : body.error?.message ?? "補登失敗");
-    if (response.ok) await load();
+    if (response.ok) { await load(); router.refresh(); }
   }
   return <div className="stack">
     {message && <div className="notice">{message}</div>}
@@ -49,7 +51,7 @@ export function PendingConfirmations() {
       const form = forms[session.id] ?? { reason: "", note: "" };
       return <article className="card stack" key={session.id}>
         <div className="page-heading" style={{ marginBottom: 0 }}><div><span className={`badge status-${session.status}`}>{session.status === "checked_in" ? "學生已報到" : "學生未報到"}</span><h3 style={{ marginTop: 10 }}>{session.coachName} × {session.studentName}</h3><p className="muted">{formatDate(session.startAt)}</p></div><div className="actions">{session.status !== "checked_in" && isAdmin && <button className="button secondary small" onClick={() => backfill(session)}>Admin 補登</button>}<button className="button small" disabled={session.status !== "checked_in"} onClick={() => outcome(session, "completed")}>確認完成</button></div></div>
-        <details><summary className="muted" style={{ cursor: "pointer" }}>課程未完成</summary><div className="form-grid" style={{ marginTop: 14 }}><div className="field"><label>原因</label><select className="input" value={form.reason} onChange={(e) => setForms({ ...forms, [session.id]: { ...form, reason: e.target.value } })}><option value="">請選擇</option>{reasons.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></div><div className="field"><label>說明</label><textarea className="input" value={form.note} onChange={(e) => setForms({ ...forms, [session.id]: { ...form, note: e.target.value } })} /></div></div><button className="button danger small" disabled={!form.reason || !form.note.trim()} onClick={() => outcome(session, "not_completed")}>確認未完成</button></details>
+        <details><summary className="muted" style={{ cursor: "pointer" }}>課程未完成</summary><div className="form-grid" style={{ marginTop: 14 }}><div className="field"><label>原因</label><select className="input" value={form.reason} onChange={(e) => setForms({ ...forms, [session.id]: { ...form, reason: e.target.value } })}><option value="">請選擇</option>{reasons.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></div><div className="field"><label>說明</label><textarea className="input" value={form.note} onChange={(e) => setForms({ ...forms, [session.id]: { ...form, note: e.target.value } })} /></div></div><div className="form-actions"><button className="button danger small" disabled={!form.reason || !form.note.trim()} onClick={() => outcome(session, "not_completed")}>確認未完成</button></div></details>
       </article>;
     })}
   </div>;

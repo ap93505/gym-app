@@ -28,6 +28,20 @@ function userName(data: FirebaseFirestore.DocumentData) {
   return data.realName || data.nickname || data.displayName || "會員";
 }
 
+function formatTaipeiSlot(start: Date) {
+  const taipei = new Date(start.getTime() + 8 * 60 * 60 * 1000);
+  const month = String(taipei.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(taipei.getUTCDate()).padStart(2, "0");
+  const hour24 = taipei.getUTCHours();
+  const period = hour24 < 12 ? "上午" : "下午";
+  const hour12 = hour24 % 12 || 12;
+  return `${month}/${day} ${period} ${hour12}點`;
+}
+
+function roleLabel(name: string, role: "教練" | "學生") {
+  return name.endsWith(role) ? name : `${name}${role}`;
+}
+
 function ensureCanManageCoach(principal: SessionPrincipal, coachId: string) {
   if (!principal.roles.includes("admin") && (!principal.roles.includes("coach") || principal.userId !== coachId)) {
     throw new AppError("教練只能管理自己的課程", 403, "FORBIDDEN");
@@ -83,17 +97,18 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
         student: await tx.get(refs.student),
       });
     }
+    const studentName = userName(studentSnapshot.data()!);
+    const coachName = userName(coachSnapshot.data()!);
     const conflicts: string[] = [];
     snapshots.forEach((group, index) => {
       const start = occurrences[index];
-      if (Number(group.slot.data()?.count ?? 0) >= MAX_GROUPS_PER_SLOT) conflicts.push(`${start.toISOString()} 時段已滿`);
-      if (group.coach.exists) conflicts.push(`${start.toISOString()} 教練已有課程`);
-      if (group.student.exists) conflicts.push(`${start.toISOString()} 學生已有課程`);
+      const time = formatTaipeiSlot(start);
+      if (Number(group.slot.data()?.count ?? 0) >= MAX_GROUPS_PER_SLOT) conflicts.push(`${time}，該時段已達三組上限`);
+      if (group.coach.exists) conflicts.push(`${time}，${roleLabel(coachName, "教練")}已有安排課程`);
+      if (group.student.exists) conflicts.push(`${time}，${roleLabel(studentName, "學生")}已有安排課程`);
     });
     if (conflicts.length) throw new AppError("部分課程時段衝突", 409, "SCHEDULE_CONFLICT", conflicts);
 
-    const studentName = userName(studentSnapshot.data()!);
-    const coachName = userName(coachSnapshot.data()!);
     const now = Timestamp.now();
     occurrences.forEach((start, index) => {
       const end = new Date(start.getTime() + HOUR_MS);

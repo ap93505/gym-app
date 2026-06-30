@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { formatMemberDate, type SessionItem } from "./MemberSchedule";
+import { formatMemberDate, formatMemberDateTime, type SessionItem } from "./MemberSchedule";
 
 type CheckInSession = SessionItem & { canCheckIn: boolean; checkInOpensAt: string };
 
@@ -54,11 +54,11 @@ export function CheckInPanelV2() {
         <article className="card stack" key={session.id}>
           <div>
             <span className={`badge ${session.canCheckIn ? "" : "warn"}`}>{session.canCheckIn ? "現在可報到" : "即將到來"}</span>
-            <h2 style={{ marginTop: 12 }}>{formatMemberDate(session.startAt)}</h2>
-            <p className="muted">教練：{session.coachName} ・ 一小時課程</p>
+            <h2 style={{ marginTop: 12 }}>上課時間：{formatMemberDate(session.startAt)}</h2>
+            <p className="muted">可打卡時間：{formatMemberDateTime(session.checkInOpensAt)} ～ {formatMemberDateTime(session.endAt)}<br />教練：{session.coachName} ・ 一小時課程</p>
           </div>
-          {!session.canCheckIn && <div className="notice">報到將於 {formatMemberDate(session.checkInOpensAt)} 開放。</div>}
-          <div><button className="button" disabled={!session.canCheckIn} onClick={() => checkIn(session.id)}>確認報到</button></div>
+          {!session.canCheckIn && <div className="notice">報到將於 {formatMemberDateTime(session.checkInOpensAt)} 開放。</div>}
+          <div className="form-actions"><button className="button" disabled={!session.canCheckIn} onClick={() => checkIn(session.id)}>確認報到</button></div>
         </article>
       ))}
     </div>

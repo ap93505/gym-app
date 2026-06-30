@@ -10,7 +10,8 @@ import type { DatesSetArg, EventClickArg } from "@fullcalendar/core";
 import { Modal } from "./Modal";
 import { formatMemberDate, type SessionItem } from "./MemberSchedule";
 import { BookingDateTimePicker } from "./BookingDateTimePicker";
-import { sessionStatusColor, sessionStatusColors } from "@/lib/domain/sessionPresentation";
+import { CalendarStatusLegend } from "./CalendarStatusLegend";
+import { sessionStatusColor } from "@/lib/domain/sessionPresentation";
 
 type UserOption = {
   id: string;
@@ -75,11 +76,6 @@ function recurrenceEnd(startLocal: string, frequency: SessionDraft["frequency"],
   return end;
 }
 
-function coachColor(id: string) {
-  const hue = [...id].reduce((total, character) => total + character.charCodeAt(0), 0) % 360;
-  return `hsl(${hue} 34% 52%)`;
-}
-
 export function StaffCalendarV2() {
   const draggableRef = useRef<HTMLDivElement>(null);
   const rangeRef = useRef({ start: new Date(), end: new Date() });
@@ -129,7 +125,7 @@ export function StaffCalendarV2() {
     const draggable = new Draggable(draggableRef.current, {
       itemSelector: ".draggable-pair",
       eventData: {
-        title: `${userName(selectedCoach)} - ${userName(students.find((user) => user.id === studentId))}`,
+        title: `教練: ${userName(selectedCoach)} - 學生: ${userName(students.find((user) => user.id === studentId))}`,
         duration: "01:00",
       },
       longPressDelay: 350,
@@ -144,7 +140,7 @@ export function StaffCalendarV2() {
     start: session.startAt,
     end: session.endAt,
     backgroundColor: sessionStatusColor(session.status),
-    borderColor: coachColor(session.coachId),
+    borderColor: sessionStatusColor(session.status),
     classNames: [`event-${session.status}`],
     extendedProps: { session },
   })), [sessions]);
@@ -223,11 +219,11 @@ export function StaffCalendarV2() {
         <div><h3>建立預約</h3><p className="muted">選擇教練與學生，再將配對方塊拖曳到右側時段。</p></div>
         <div className="field"><label>學生</label><select className="input" value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">請選擇</option>{students.map((user) => <option key={user.id} value={user.id}>{userName(user)}（可預約 {user.credits.available}）</option>)}</select></div>
         <div className="field"><label>教練</label><select className="input" value={coachId} onChange={(event) => setCoachId(event.target.value)} disabled={!isAdmin}><option value="">請選擇</option>{coaches.map((user) => <option key={user.id} value={user.id}>{userName(user)}</option>)}</select></div>
-        <div ref={draggableRef}>{studentId && coachId ? <div className="draggable-pair">↗ {userName(selectedCoach)} × {userName(students.find((user) => user.id === studentId))}<div style={{ fontWeight: 400, marginTop: 6 }}>拖曳至一小時時段</div></div> : <div className="notice">請先完成教練與學生選擇。</div>}</div>
+        <div ref={draggableRef}>{studentId && coachId ? <div className="draggable-pair">教練: {userName(selectedCoach)} - 學生: {userName(students.find((user) => user.id === studentId))}<div style={{ fontWeight: 400, marginTop: 6 }}>拖曳至一小時時段</div></div> : <div className="notice">請先完成教練與學生選擇。</div>}</div>
         <button className="button secondary" onClick={() => openCreate(new Date(nextHour()))}>使用表單新增</button>
-        <div className="stack"><div><p className="muted legend-title">課程狀態</p><div className="calendar-legend">{Object.entries(statusLabels).map(([status, label]) => <span className="legend-item" key={status}><span className="legend-dot" style={{ background: sessionStatusColors[status] }} />{label}</span>)}</div></div><div><p className="muted legend-title">教練邊線</p><div className="calendar-legend">{coaches.map((coach) => <span className="legend-item" key={coach.id}><span className="legend-dot" style={{ background: coachColor(coach.id) }} />{userName(coach)}</span>)}</div></div></div>
       </aside>
       <section className="card calendar-card">
+        <CalendarStatusLegend />
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           locale={zhTwLocale}
@@ -266,7 +262,7 @@ export function StaffCalendarV2() {
         </div>
         {!draft.id && draft.frequency !== "none" && <><div className="field"><label>循環次數（目前最多 {maxCount} 次）</label><input className="input" type="number" min="1" max={maxCount || 1} value={draft.count} onChange={(event) => setDraft({ ...draft, count: Number(event.target.value) })} /></div>{recurrenceEndDate && <div className="notice">共 {draft.count} 堂，最後一堂：{formatMemberDate(recurrenceEndDate.toISOString())}；建立後尚可預約 {Math.max(0, maxCount - draft.count)} 堂。</div>}</>}
         {message && <div className="notice error">{message}</div>}
-        <div className="actions"><button type="button" className="button secondary" onClick={() => { setDraft(null); setEditing(false); }}>取消</button><button className="button" disabled={saving || !draft.studentId || !draft.coachId || (!draft.id && draft.count > maxCount)}>{saving ? "儲存中…" : "儲存"}</button></div>
+        <div className="form-actions"><button className="button" disabled={saving || !draft.studentId || !draft.coachId || (!draft.id && draft.count > maxCount)}>{saving ? "儲存中…" : "儲存"}</button><button type="button" className="button secondary" onClick={() => { setDraft(null); setEditing(false); }}>取消</button></div>
       </form>}
     </Modal>
 
@@ -275,11 +271,11 @@ export function StaffCalendarV2() {
         <div><span className={`badge status-${selected.status}`}>{statusLabels[selected.status]}</span><h3 style={{ marginTop: 12 }}>{formatMemberDate(selected.startAt)}</h3><p>教練：{selected.coachName}<br />學生：{selected.studentName}</p></div>
         {cancelling && <div className="field"><label>取消原因</label><textarea className="input" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} required /></div>}
         {message && <div className="notice error">{message}</div>}
-        <div className="actions">
-          <button className="button secondary" onClick={() => setSelected(null)}>關閉</button>
+        <div className="form-actions">
           {canEditSelected && !cancelling && <button className="button" onClick={beginEdit}>編輯</button>}
           {canEditSelected && isAdmin && !cancelling && <button className="button danger" onClick={() => setCancelling(true)}>取消課程</button>}
-          {cancelling && <><button className="button secondary" onClick={() => setCancelling(false)}>返回</button><button className="button danger" disabled={!cancelReason.trim() || saving} onClick={cancelSession}>確認取消</button></>}
+          {cancelling && <><button className="button danger" disabled={!cancelReason.trim() || saving} onClick={cancelSession}>確認取消</button><button className="button secondary" onClick={() => setCancelling(false)}>返回</button></>}
+          <button className="button secondary" onClick={() => setSelected(null)}>關閉</button>
         </div>
       </div>}
     </Modal>

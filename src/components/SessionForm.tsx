@@ -94,6 +94,6 @@ export function SessionForm({ onCreated }: { onCreated: () => void }) {
       {mode === "count" && calculatedEnd && <div className="notice">共 {count} 堂，最後一堂為 {calculatedEnd.toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}；建立後尚可預約 {Math.max(0, maxCount - count)} 堂。</div>}
     </div>}
     {message && <div className={message.includes("失敗") || message.includes("不足") || message.includes("衝突") ? "notice error" : "notice"}>{message}</div>}
-    <div><button className="button" disabled={submitting || !studentId || !coachId || (frequency !== "none" && mode === "count" && count > maxCount)}>{submitting ? "建立中…" : "建立課程"}</button></div>
+    <div className="form-actions"><button className="button" disabled={submitting || !studentId || !coachId || (frequency !== "none" && mode === "count" && count > maxCount)}>{submitting ? "建立中…" : "建立課程"}</button></div>
   </form>;
 }

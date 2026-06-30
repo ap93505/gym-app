@@ -43,7 +43,7 @@ export function PlansManagerV2() {
         <div className="form-grid"><div className="field"><label>堂數</label><input className="input" type="number" min="1" value={draft.sessions} onChange={(event) => setDraft({ ...draft, sessions: Number(event.target.value) })} required /></div><div className="field"><label>價格（NT$）</label><input className="input" type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} required /></div></div>
         <label><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} /> 方案上架</label>
         {message && <div className="notice error">{message}</div>}
-        <div className="actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>取消</button><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存方案"}</button></div>
+        <div className="form-actions"><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存方案"}</button><button type="button" className="button secondary" onClick={() => setOpen(false)}>取消</button></div>
       </form>
     </Modal>
   </>;

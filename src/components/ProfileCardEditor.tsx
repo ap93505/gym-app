@@ -60,7 +60,7 @@ export function ProfileCardEditor({ profile }: { profile: Profile }) {
           <div className="field"><label htmlFor="realName">本名</label><input id="realName" className="input" value={draft.realName} onChange={(event) => setDraft({ ...draft, realName: event.target.value })} required /></div>
           <div className="field"><label htmlFor="nickname">綽號</label><input id="nickname" className="input" value={draft.nickname} onChange={(event) => setDraft({ ...draft, nickname: event.target.value })} required /></div>
           {message && <div className="notice error">{message}</div>}
-          <div className="actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>取消</button><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存"}</button></div>
+          <div className="form-actions"><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存"}</button><button type="button" className="button secondary" onClick={() => setOpen(false)}>取消</button></div>
         </form>
       </Modal>
     </>

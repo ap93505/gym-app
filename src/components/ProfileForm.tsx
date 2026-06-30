@@ -48,7 +48,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
           <div className="field"><label htmlFor="nickname">綽號</label><input id="nickname" className="input" value={nickname} onChange={(e) => setNickname(e.target.value)} required /></div>
         </div>
         {message && <div className={message.includes("失敗") ? "notice error" : "notice"}>{message}</div>}
-        <div><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存資料"}</button></div>
+        <div className="form-actions"><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存資料"}</button></div>
       </form>
     </div>
   );

@@ -8,6 +8,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import zhTwLocale from "@fullcalendar/core/locales/zh-tw";
 import type { DatesSetArg, EventClickArg } from "@fullcalendar/core";
 import { Modal } from "./Modal";
+import { CalendarStatusLegend } from "./CalendarStatusLegend";
 import { formatMemberDate, type SessionItem } from "./MemberSchedule";
 import { sessionStatusColor, sessionStatusLabels } from "@/lib/domain/sessionPresentation";
 
@@ -37,6 +38,7 @@ export function DashboardMonthCalendar() {
   return <>
     <section className="card" style={{ marginTop: 18 }}>
       <div className="page-heading"><div><h3>預約課程</h3><p className="muted">預設顯示今天，可切換日、週或月檢視。</p></div></div>
+      <CalendarStatusLegend />
       {error && <div className="notice error">{error}</div>}
       <FullCalendar
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
