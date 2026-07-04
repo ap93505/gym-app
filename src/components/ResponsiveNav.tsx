@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 type NavItem = { href: string; label: string; dot?: boolean };
 
@@ -27,6 +28,7 @@ export function ResponsiveNav({ items, showLogout = false }: { items: NavItem[];
             <span className="nav-label">{item.label}{item.dot && <span className="nav-dot" aria-label="有待確認課程" />}</span>
           </Link>
         ))}
+        <ThemeSwitcher />
         {showLogout && (
           <form action="/api/auth/logout" method="post">
             <button className="button secondary small">登出</button>

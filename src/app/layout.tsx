@@ -8,7 +8,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-Hant">
+    <html lang="zh-Hant" data-theme="future" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{const theme=localStorage.getItem("ray-theme");if(theme==="minimal"||theme==="future")document.documentElement.dataset.theme=theme}catch{}` }} />
+      </head>
       <body>
         <div className="shell">
           {children}

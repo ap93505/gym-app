@@ -60,6 +60,10 @@ function nextHour() {
   return localInput(date);
 }
 
+function taipeiToday() {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 function recurrenceEnd(startLocal: string, frequency: SessionDraft["frequency"], count: number) {
   const start = new Date(startLocal);
   if (frequency === "none" || count <= 1) return start;
@@ -92,6 +96,7 @@ export function StaffCalendarV2() {
   const [cancelReason, setCancelReason] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [today] = useState(taipeiToday);
 
   const isAdmin = me?.roles.includes("admin") ?? false;
   const selectedStudent = students.find((user) => user.id === (draft?.studentId ?? studentId));
@@ -257,7 +262,7 @@ export function StaffCalendarV2() {
         <div className="form-grid">
           <div className="field"><label>學生</label><select className="input" value={draft.studentId} onChange={(event) => setDraft({ ...draft, studentId: event.target.value })} required><option value="">請選擇</option>{students.map((user) => <option key={user.id} value={user.id}>{userName(user)}（可預約 {user.credits.available}）</option>)}</select></div>
           <div className="field"><label>教練</label><select className="input" value={draft.coachId} onChange={(event) => setDraft({ ...draft, coachId: event.target.value })} disabled={!isAdmin} required><option value="">請選擇</option>{coaches.map((user) => <option key={user.id} value={user.id}>{userName(user)}</option>)}</select></div>
-          <div className="field"><label>課程日期與時段</label><BookingDateTimePicker value={draft.startLocal} onChange={(startLocal) => setDraft({ ...draft, startLocal })} /></div>
+          <div className="field"><label>課程日期與時段</label><BookingDateTimePicker value={draft.startLocal} onChange={(startLocal) => setDraft({ ...draft, startLocal })} minDate={isAdmin ? undefined : today} /><span className="muted field-hint">{isAdmin ? "Admin 可建立任意日期的課程。" : "教練可建立今天或之後的課程。"}</span></div>
           {!draft.id && <div className="field"><label>循環</label><select className="input" value={draft.frequency} onChange={(event) => setDraft({ ...draft, frequency: event.target.value as SessionDraft["frequency"], count: 1 })}><option value="none">不重複</option><option value="daily">每日</option><option value="weekly">每週</option><option value="monthly">每月</option></select></div>}
         </div>
         {!draft.id && draft.frequency !== "none" && <><div className="field"><label>循環次數（目前最多 {maxCount} 次）</label><input className="input" type="number" min="1" max={maxCount || 1} value={draft.count} onChange={(event) => setDraft({ ...draft, count: Number(event.target.value) })} /></div>{recurrenceEndDate && <div className="notice">共 {draft.count} 堂，最後一堂：{formatMemberDate(recurrenceEndDate.toISOString())}；建立後尚可預約 {Math.max(0, maxCount - draft.count)} 堂。</div>}</>}

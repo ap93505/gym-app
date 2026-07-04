@@ -16,6 +16,15 @@ function assertBookableStart(start: Date) {
   assert(taipeiHour >= 10 && taipeiHour < 22, "可預約時段為上午 10 點至晚上 10 點");
 }
 
+function taipeiDateKey(date: Date) {
+  return new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function assertCreateDate(principal: SessionPrincipal, start: Date) {
+  if (principal.roles.includes("admin")) return;
+  assert(taipeiDateKey(start) >= taipeiDateKey(new Date()), "只能建立今天或之後的課程");
+}
+
 function slotId(start: Date) {
   return String(start.getTime());
 }
@@ -58,7 +67,7 @@ export type CreateSessionsInput = {
 export async function createSessions(principal: SessionPrincipal, input: CreateSessionsInput) {
   assertBookableStart(input.startAt);
   ensureCanManageCoach(principal, input.coachId);
-  assert(input.startAt.getTime() > Date.now(), "只能建立未來的課程");
+  assertCreateDate(principal, input.startAt);
   const occurrences = generateOccurrences(input.startAt, input.recurrence);
   const seriesRef = occurrences.length > 1 ? db.collection("recurrenceSeries").doc() : null;
   const sessionRefs = occurrences.map(() => db.collection("sessions").doc());

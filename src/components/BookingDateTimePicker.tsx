@@ -2,7 +2,7 @@
 
 const hours = Array.from({ length: 12 }, (_, index) => index + 10);
 
-export function BookingDateTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function BookingDateTimePicker({ value, onChange, minDate }: { value: string; onChange: (value: string) => void; minDate?: string }) {
   const [date = "", time = "10:00"] = value.split("T");
   const update = (nextDate: string, nextTime: string) => onChange(`${nextDate}T${nextTime}`);
 
@@ -12,6 +12,7 @@ export function BookingDateTimePicker({ value, onChange }: { value: string; onCh
         className="input"
         type="date"
         aria-label="課程日期"
+        min={minDate}
         value={date}
         onChange={(event) => update(event.target.value, time)}
         required
