@@ -33,7 +33,7 @@ export async function GET(_request: Request, context: { params: Promise<{ sessio
       `DTSTART:${icsDate(data.startAt.toDate())}`,
       `DTEND:${icsDate(data.endAt.toDate())}`,
       `SUMMARY:${escapeText(`私人教練課程｜${data.coachName}`)}`,
-      `DESCRIPTION:${escapeText(`教練：${data.coachName}`)}`,
+      `DESCRIPTION:${escapeText(`教練：${data.coachName}\n方案：${data.planName}`)}`,
       `STATUS:${data.status === "cancelled" ? "CANCELLED" : "CONFIRMED"}`,
       "END:VEVENT",
       "END:VCALENDAR",

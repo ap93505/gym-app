@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type UserOption = { id: string; realName: string; nickname: string; displayName: string; roles: string[]; credits: { available: number } };
+type UserOption = { id: string; realName: string; nickname: string; displayName: string; roles: string[]; credits: { available: number; plans: Array<{ planId: string; planName: string; totalRemaining: number; reserved: number; available: number }> } };
 type Me = UserOption;
 
 function localDateTime(date: Date) {
@@ -32,6 +32,7 @@ export function SessionForm({ onCreated }: { onCreated: () => void }) {
   const [coaches, setCoaches] = useState<UserOption[]>([]);
   const [studentId, setStudentId] = useState("");
   const [coachId, setCoachId] = useState("");
+  const [planId, setPlanId] = useState("");
   const [startLocal, setStartLocal] = useState(nextDefault());
   const [frequency, setFrequency] = useState("none");
   const [mode, setMode] = useState<"count" | "end">("count");
@@ -52,7 +53,8 @@ export function SessionForm({ onCreated }: { onCreated: () => void }) {
   }, []);
 
   const selectedStudent = students.find((user) => user.id === studentId);
-  const maxCount = Math.min(selectedStudent?.credits.available ?? 0, 100);
+  const selectedPlan = selectedStudent?.credits.plans.find((plan) => plan.planId === planId);
+  const maxCount = Math.min(selectedPlan?.available ?? 0, 100);
   const calculatedEnd = useMemo(() => {
     if (!startLocal || frequency === "none") return startLocal ? new Date(startLocal) : null;
     return addOccurrence(new Date(startLocal), frequency, Math.max(0, count - 1));
@@ -71,7 +73,7 @@ export function SessionForm({ onCreated }: { onCreated: () => void }) {
     }
     const response = await fetch("/api/sessions", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ studentId, coachId, startAt: start.toISOString(), recurrence }),
+      body: JSON.stringify({ studentId, coachId, planId, startAt: start.toISOString(), recurrence }),
     });
     const body = await response.json();
     setMessage(response.ok ? `已建立 ${body.count} 堂課` : `${body.error?.message ?? "建立失敗"}${body.error?.details ? `：${body.error.details.join("、")}` : ""}`);
@@ -83,8 +85,9 @@ export function SessionForm({ onCreated }: { onCreated: () => void }) {
   return <form className="card stack" onSubmit={submit}>
     <div><h3>建立課程</h3><p className="muted">每堂固定一小時，系統會檢查三組容量及教練／學生撞堂。</p></div>
     <div className="form-grid">
-      <div className="field"><label>學生</label><select className="input" value={studentId} onChange={(e) => { setStudentId(e.target.value); setCount(1); }} required><option value="">請選擇</option>{students.map((user) => <option value={user.id} key={user.id}>{user.realName || user.nickname || user.displayName}（可預約 {user.credits.available}）</option>)}</select></div>
+      <div className="field"><label>學生</label><select className="input" value={studentId} onChange={(e) => { setStudentId(e.target.value); setPlanId(""); setCount(1); }} required><option value="">請選擇</option>{students.map((user) => <option value={user.id} key={user.id}>{user.realName || user.nickname || user.displayName}（可預約 {user.credits.available}）</option>)}</select></div>
       <div className="field"><label>教練</label><select className="input" value={coachId} onChange={(e) => setCoachId(e.target.value)} disabled={!isAdmin} required><option value="">請選擇</option>{coaches.map((user) => <option value={user.id} key={user.id}>{user.realName || user.nickname || user.displayName}</option>)}</select></div>
+      <div className="field"><label>方案</label><select className="input" value={planId} onChange={(e) => { setPlanId(e.target.value); setCount(1); }} required><option value="">請選擇方案</option>{selectedStudent?.credits.plans.map((plan) => <option value={plan.planId} key={plan.planId} disabled={plan.available < 1}>{plan.planName}｜剩餘 {plan.totalRemaining}｜已預約 {plan.reserved}｜可預約 {plan.available}</option>)}</select></div>
       <div className="field"><label>第一堂時間</label><input className="input" type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} required /></div>
       <div className="field"><label>循環</label><select className="input" value={frequency} onChange={(e) => { setFrequency(e.target.value); setCount(1); }}><option value="none">不重複</option><option value="daily">每日</option><option value="weekly">每週</option><option value="monthly">每月</option></select></div>
     </div>
@@ -94,6 +97,6 @@ export function SessionForm({ onCreated }: { onCreated: () => void }) {
       {mode === "count" && calculatedEnd && <div className="notice">共 {count} 堂，最後一堂為 {calculatedEnd.toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}；建立後尚可預約 {Math.max(0, maxCount - count)} 堂。</div>}
     </div>}
     {message && <div className={message.includes("失敗") || message.includes("不足") || message.includes("衝突") ? "notice error" : "notice"}>{message}</div>}
-    <div className="form-actions"><button className="button" disabled={submitting || !studentId || !coachId || (frequency !== "none" && mode === "count" && count > maxCount)}>{submitting ? "建立中…" : "建立課程"}</button></div>
+    <div className="form-actions"><button className="button" disabled={submitting || !studentId || !coachId || !planId || (frequency !== "none" && mode === "count" && count > maxCount)}>{submitting ? "建立中…" : "建立課程"}</button></div>
   </form>;
 }

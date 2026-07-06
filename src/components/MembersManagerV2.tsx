@@ -10,7 +10,7 @@ type Member = {
   nickname: string;
   roles: string[];
   status: string;
-  credits: { totalRemaining: number; reserved: number; available: number };
+  credits: { totalRemaining: number; reserved: number; available: number; plans: Array<{ planId: string; planName: string; totalRemaining: number; reserved: number; available: number }> };
 };
 
 type Plan = { id: string; name: string; sessions: number; price: number; active: boolean };
@@ -79,7 +79,7 @@ export function MembersManagerV2() {
         <div className="form-actions"><button className="button" type="submit">搜尋</button><button className="button secondary" type="button" onClick={() => { setSearchDraft(""); setSearch(""); }}>清除</button></div>
       </form>
       <p className="muted search-result-count">顯示 {filteredMembers.length} / {members.length} 位會員</p>
-      <div className="table-wrap"><table className="member-table"><thead><tr><th>會員</th><th>角色</th><th>堂數</th><th>操作</th></tr></thead><tbody>{filteredMembers.map((member) => <tr key={member.id}><td data-label="會員"><strong>{member.realName || member.nickname || member.displayName}</strong><div></div><div className="muted">LINE：{member.displayName || "－"}<br />本名：{member.realName || "－"}<br />綽號：{member.nickname || "－"}</div></td><td data-label="角色"><div className="actions">{member.roles.map((role) => <span className="badge" key={role}>{role}</span>)}</div></td><td data-label="堂數"><div className="credit-badges"><span className="badge credit-total">總剩餘 {member.credits.totalRemaining}</span><span className="badge credit-reserved">已預約 {member.credits.reserved}</span><span className="badge credit-available">可預約 {member.credits.available}</span></div></td><td data-label="操作"><div className="actions"><button className="button secondary small" onClick={() => editRoles(member)}>編輯權限</button><button className="button small" onClick={() => addCredits(member)}>儲值堂數</button></div></td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table className="member-table"><thead><tr><th>會員</th><th>角色</th><th>堂數</th><th>操作</th></tr></thead><tbody>{filteredMembers.map((member) => <tr key={member.id}><td data-label="會員"><strong>{member.realName || member.nickname || member.displayName}</strong><div></div><div className="muted">LINE：{member.displayName || "－"}<br />本名：{member.realName || "－"}<br />綽號：{member.nickname || "－"}</div></td><td data-label="角色"><div className="actions">{member.roles.map((role) => <span className="badge" key={role}>{role}</span>)}</div></td><td data-label="堂數"><div className="credit-badges"><span className="badge credit-total">總剩餘 {member.credits.totalRemaining}</span><span className="badge credit-reserved">已預約 {member.credits.reserved}</span><span className="badge credit-available">可預約 {member.credits.available}</span>{member.credits.plans.map((plan) => <span className="badge gray" key={plan.planId}>{plan.planName}：{plan.available} 可預約</span>)}</div></td><td data-label="操作"><div className="actions"><button className="button secondary small" onClick={() => editRoles(member)}>編輯權限</button><button className="button small" onClick={() => addCredits(member)}>儲值堂數</button></div></td></tr>)}</tbody></table></div>
       {!filteredMembers.length && <div className="notice">找不到符合條件的會員。</div>}
     </section>
     <Modal open={!!selected} title={mode === "roles" ? "編輯會員權限" : "選擇儲值方案"} onClose={() => setSelected(null)}>

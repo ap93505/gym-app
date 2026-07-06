@@ -7,6 +7,7 @@ import { updateSession } from "@/lib/services/sessions";
 const schema = z.object({
   studentId: z.string().min(1),
   coachId: z.string().min(1),
+  planId: z.string().min(1),
   startAt: z.coerce.date(),
 });
 

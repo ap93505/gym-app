@@ -1,13 +1,14 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firebase/admin";
 import { AppError, assert } from "@/lib/domain/errors";
-import { availableCredits, consumeReservedCredit, releaseCredit, reserveCredits } from "@/lib/domain/credits";
+import { consumeReservedCredit, releaseCredit, reserveCredits } from "@/lib/domain/credits";
 import { generateOccurrences, type RecurrenceRule } from "@/lib/domain/recurrence";
 import type { IncompleteReason, Role, SessionPrincipal, SessionStatus } from "@/lib/domain/types";
 import { creditSummary } from "./users";
 
 const HOUR_MS = 60 * 60 * 1000;
 const CHECK_IN_BEFORE_MS = 30 * 60 * 1000;
+const CHECK_IN_AFTER_MS = 60 * 60 * 1000;
 const MAX_GROUPS_PER_SLOT = 3;
 
 function assertBookableStart(start: Date) {
@@ -57,14 +58,37 @@ function ensureCanManageCoach(principal: SessionPrincipal, coachId: string) {
   }
 }
 
+function usablePlanBatches(snapshot: FirebaseFirestore.QuerySnapshot, planId: string) {
+  const now = Date.now();
+  return snapshot.docs
+    .filter((doc) => {
+      const data = doc.data();
+      const remaining = Number(data.remainingUnits ?? 0);
+      const reserved = Number(data.reservedUnits ?? 0);
+      return data.planId === planId && remaining - reserved > 0 && data.expiresAt?.toMillis?.() > now;
+    })
+    .sort((a, b) => a.data().expiresAt.toMillis() - b.data().expiresAt.toMillis());
+}
+
+function allocateBatchIds(batches: FirebaseFirestore.QueryDocumentSnapshot[], count: number) {
+  const result: string[] = [];
+  batches.forEach((batch) => {
+    const available = Math.max(0, Number(batch.data().remainingUnits ?? 0) - Number(batch.data().reservedUnits ?? 0));
+    for (let index = 0; index < available && result.length < count; index += 1) result.push(batch.id);
+  });
+  return result;
+}
+
 export type CreateSessionsInput = {
   studentId: string;
   coachId: string;
+  planId: string;
   startAt: Date;
   recurrence: RecurrenceRule;
 };
 
 export async function createSessions(principal: SessionPrincipal, input: CreateSessionsInput) {
+  assert(input.studentId !== input.coachId, "教練與學生不可為同一人");
   assertBookableStart(input.startAt);
   ensureCanManageCoach(principal, input.coachId);
   assertCreateDate(principal, input.startAt);
@@ -77,17 +101,21 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
     const coachRef = db.collection("users").doc(input.coachId);
     const studentSnapshot = await tx.get(studentRef);
     const coachSnapshot = await tx.get(coachRef);
+    const batchSnapshot = await tx.get(studentRef.collection("creditBatches"));
     if (!studentSnapshot.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
     if (!coachSnapshot.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
     assert((studentSnapshot.data()!.roles as Role[]).includes("student"), "指定帳號不是學生");
     assert((coachSnapshot.data()!.roles as Role[]).includes("coach"), "指定帳號不是教練");
     const summary = creditSummary(studentSnapshot.data());
-    if (availableCredits(summary) < occurrences.length) {
-      throw new AppError("學生可預約堂數不足", 409, "INSUFFICIENT_CREDITS", {
-        available: availableCredits(summary),
+    const planBatches = usablePlanBatches(batchSnapshot, input.planId);
+    const batchIds = allocateBatchIds(planBatches, occurrences.length);
+    if (batchIds.length < occurrences.length) {
+      throw new AppError("此方案可預約堂數不足", 409, "INSUFFICIENT_PLAN_CREDITS", {
+        available: batchIds.length,
         requested: occurrences.length,
       });
     }
+    const planName = String(planBatches[0]?.data().planName ?? planBatches[0]?.data().note?.replace(/^方案：/, "") ?? input.planId);
 
     const refGroups = occurrences.map((start) => ({
       slot: db.collection("timeSlots").doc(slotId(start)),
@@ -129,6 +157,9 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
         studentName,
         coachId: input.coachId,
         coachName,
+        planId: input.planId,
+        planName,
+        creditBatchId: batchIds[index],
         startAt: Timestamp.fromDate(start),
         endAt: Timestamp.fromDate(end),
         status: "scheduled" satisfies SessionStatus,
@@ -149,10 +180,18 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
       credits: reserveCredits(summary, occurrences.length),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    const reservationCounts = new Map<string, number>();
+    batchIds.forEach((batchId) => reservationCounts.set(batchId, (reservationCounts.get(batchId) ?? 0) + 1));
+    planBatches.forEach((batch) => {
+      const quantity = reservationCounts.get(batch.id);
+      if (quantity) tx.update(batch.ref, { reservedUnits: Number(batch.data().reservedUnits ?? 0) + quantity });
+    });
     if (seriesRef) {
       tx.set(seriesRef, {
         studentId: input.studentId,
         coachId: input.coachId,
+        planId: input.planId,
+        planName,
         frequency: input.recurrence.frequency,
         count: occurrences.length,
         startAt: Timestamp.fromDate(occurrences[0]),
@@ -165,7 +204,7 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
       action: "sessions.created",
       actorId: principal.userId,
       targetId: seriesRef?.id ?? sessionRefs[0].id,
-      metadata: { count: occurrences.length, studentId: input.studentId, coachId: input.coachId },
+      metadata: { count: occurrences.length, studentId: input.studentId, coachId: input.coachId, planId: input.planId },
       createdAt: now,
     });
   });
@@ -175,10 +214,11 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
 export async function updateSession(
   principal: SessionPrincipal,
   sessionId: string,
-  input: { studentId: string; coachId: string; startAt: Date },
+  input: { studentId: string; coachId: string; planId: string; startAt: Date },
 ) {
+  assert(input.studentId !== input.coachId, "教練與學生不可為同一人");
   assertBookableStart(input.startAt);
-  assert(input.startAt.getTime() > Date.now(), "只能將課程調整到未來時段");
+  assertCreateDate(principal, input.startAt);
   await db.runTransaction(async (tx) => {
     const sessionRef = db.collection("sessions").doc(sessionId);
     const session = await tx.get(sessionRef);
@@ -186,13 +226,14 @@ export async function updateSession(
     const data = session.data()!;
     ensureCanManageCoach(principal, data.coachId);
     ensureCanManageCoach(principal, input.coachId);
-    assert((data.startAt.toDate() as Date).getTime() > Date.now(), "只能修改尚未發生的課程");
     assert(data.status === "scheduled", "只有尚未報到的課程可以修改");
 
     const oldStart = data.startAt.toDate() as Date;
     const timeChanged = oldStart.getTime() !== input.startAt.getTime();
     const studentChanged = data.studentId !== input.studentId;
     const coachChanged = data.coachId !== input.coachId;
+    const planChanged = data.planId !== input.planId;
+    const creditChanged = studentChanged || planChanged;
     const oldStudentRef = db.collection("users").doc(data.studentId);
     const newStudentRef = db.collection("users").doc(input.studentId);
     const newCoachRef = db.collection("users").doc(input.coachId);
@@ -208,6 +249,9 @@ export async function updateSession(
     const newStudentLockRef = db.collection("studentSlotLocks").doc(lockId(input.studentId, input.startAt));
     const newCoachLock = timeChanged || coachChanged ? await tx.get(newCoachLockRef) : null;
     const newStudentLock = timeChanged || studentChanged ? await tx.get(newStudentLockRef) : null;
+    const oldBatchRef = oldStudentRef.collection("creditBatches").doc(data.creditBatchId);
+    const oldBatch = creditChanged ? await tx.get(oldBatchRef) : null;
+    const newBatchSnapshot = creditChanged ? await tx.get(newStudentRef.collection("creditBatches")) : null;
 
     if (!oldStudent.exists || !newStudent.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
     if (!newCoach.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
@@ -218,9 +262,13 @@ export async function updateSession(
     }
     if (newCoachLock?.exists) throw new AppError("教練在新時段已有課程", 409, "COACH_CONFLICT");
     if (newStudentLock?.exists) throw new AppError("學生在新時段已有課程", 409, "STUDENT_CONFLICT");
-    if (studentChanged && availableCredits(creditSummary(newStudent.data())) < 1) {
-      throw new AppError("新學生沒有可預約堂數", 409, "INSUFFICIENT_CREDITS");
-    }
+    if (creditChanged && !oldBatch?.exists) throw new AppError("找不到原預約方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
+    const newPlanBatches = newBatchSnapshot ? usablePlanBatches(newBatchSnapshot, input.planId) : [];
+    const newBatch = creditChanged ? newPlanBatches[0] : null;
+    if (creditChanged && !newBatch) throw new AppError("新方案沒有可預約堂數", 409, "INSUFFICIENT_PLAN_CREDITS");
+    const planName = creditChanged
+      ? String(newBatch!.data().planName ?? newBatch!.data().note?.replace(/^方案：/, "") ?? input.planId)
+      : String(data.planName ?? input.planId);
 
     const now = Timestamp.now();
     if (timeChanged) {
@@ -241,6 +289,10 @@ export async function updateSession(
       tx.delete(db.collection("studentSlotLocks").doc(lockId(data.studentId, oldStart)));
       tx.set(newStudentLockRef, { sessionId, studentId: input.studentId, startAt: Timestamp.fromDate(input.startAt) });
     }
+    if (creditChanged) {
+      tx.update(oldBatchRef, { reservedUnits: Math.max(0, Number(oldBatch!.data()?.reservedUnits ?? 0) - 1) });
+      tx.update(newBatch!.ref, { reservedUnits: Number(newBatch!.data().reservedUnits ?? 0) + 1 });
+    }
     if (studentChanged) {
       tx.update(oldStudentRef, { credits: releaseCredit(creditSummary(oldStudent.data())), updatedAt: now });
       tx.update(newStudentRef, { credits: reserveCredits(creditSummary(newStudent.data()), 1), updatedAt: now });
@@ -250,6 +302,9 @@ export async function updateSession(
       studentName: userName(newStudent.data()!),
       coachId: input.coachId,
       coachName: userName(newCoach.data()!),
+      planId: input.planId,
+      planName,
+      creditBatchId: creditChanged ? newBatch!.id : data.creditBatchId,
       startAt: Timestamp.fromDate(input.startAt),
       endAt: Timestamp.fromDate(new Date(input.startAt.getTime() + HOUR_MS)),
       updatedAt: now,
@@ -259,7 +314,7 @@ export async function updateSession(
       action: "session.updated",
       actorId: principal.userId,
       targetId: sessionId,
-      metadata: { studentId: input.studentId, coachId: input.coachId, startAt: input.startAt },
+      metadata: { studentId: input.studentId, coachId: input.coachId, planId: input.planId, startAt: input.startAt },
       createdAt: now,
     });
   });
@@ -273,6 +328,8 @@ function sessionJson(doc: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFire
     studentName: data.studentName,
     coachId: data.coachId,
     coachName: data.coachName,
+    planId: data.planId,
+    planName: data.planName,
     startAt: data.startAt.toDate().toISOString(),
     endAt: data.endAt.toDate().toISOString(),
     status: data.status as SessionStatus,
@@ -291,9 +348,24 @@ export async function listSessions(from: Date, to: Date, principal: SessionPrinc
     .orderBy("startAt", "asc")
     .get();
   const sessions = snapshot.docs.map(sessionJson);
-  return mineOnly || (principal.roles.length === 1 && principal.roles.includes("student"))
-    ? sessions.filter((session) => session.studentId === principal.userId)
-    : sessions;
+  if (mineOnly) return sessions.filter((session) => session.studentId === principal.userId);
+  if (principal.roles.includes("admin")) return sessions;
+  if (principal.roles.includes("coach")) return sessions.filter((session) => session.coachId === principal.userId);
+  return sessions.filter((session) => session.studentId === principal.userId);
+}
+
+export async function listSlotAvailability(from: Date, to: Date) {
+  const snapshot = await db
+    .collection("timeSlots")
+    .where("startAt", ">=", Timestamp.fromDate(from))
+    .where("startAt", "<", Timestamp.fromDate(to))
+    .orderBy("startAt", "asc")
+    .get();
+  return snapshot.docs.map((doc) => ({
+    startAt: (doc.data().startAt as Timestamp).toDate().toISOString(),
+    count: Number(doc.data().count ?? 0),
+    capacity: MAX_GROUPS_PER_SLOT,
+  }));
 }
 
 export async function eligibleCheckins(userId: string) {
@@ -304,17 +376,19 @@ export async function eligibleCheckins(userId: string) {
     .get();
   return snapshot.docs
     .map(sessionJson)
-    .filter((session) => session.status === "scheduled" && new Date(session.endAt) >= now)
+    .filter((session) => session.status === "scheduled" && new Date(session.endAt).getTime() + CHECK_IN_AFTER_MS >= now.getTime())
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
     .slice(0, 10)
     .map((session) => {
       const start = new Date(session.startAt);
       const end = new Date(session.endAt);
       const opensAt = new Date(start.getTime() - CHECK_IN_BEFORE_MS);
+      const closesAt = new Date(end.getTime() + CHECK_IN_AFTER_MS);
       return {
         ...session,
-        canCheckIn: now >= opensAt && now <= end,
+        canCheckIn: now >= opensAt && now <= closesAt,
         checkInOpensAt: opensAt.toISOString(),
+        checkInClosesAt: closesAt.toISOString(),
       };
     });
 }
@@ -333,7 +407,7 @@ export async function checkIn(principal: SessionPrincipal, sessionId: string, st
     const start = data.startAt.toDate() as Date;
     const end = data.endAt.toDate() as Date;
     if (!studentId) {
-      assert(now.getTime() >= start.getTime() - CHECK_IN_BEFORE_MS && now <= end, "目前不在可報到時間內");
+      assert(now.getTime() >= start.getTime() - CHECK_IN_BEFORE_MS && now.getTime() <= end.getTime() + CHECK_IN_AFTER_MS, "目前不在可報到時間內");
     }
     tx.update(ref, {
       status: "checked_in",
@@ -373,20 +447,21 @@ export async function confirmOutcome(
 
     const studentRef = db.collection("users").doc(data.studentId);
     const student = await tx.get(studentRef);
+    const batchRef = studentRef.collection("creditBatches").doc(data.creditBatchId);
+    const batch = await tx.get(batchRef);
     if (!student.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
+    if (!batch.exists) throw new AppError("找不到課程對應的方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
     const summary = creditSummary(student.data());
-    let batch: FirebaseFirestore.QueryDocumentSnapshot | undefined;
-    if (outcome === "completed") {
-      const batches = await tx.get(studentRef.collection("creditBatches").orderBy("expiresAt", "asc"));
-      batch = batches.docs.find(
-        (doc) => Number(doc.data().remainingUnits ?? 0) > 0 && (doc.data().expiresAt.toDate() as Date) > new Date(),
-      );
-      if (!batch) throw new AppError("找不到可扣除的有效堂數批次", 409, "CREDIT_BATCH_NOT_FOUND");
-    }
+    assert(Number(batch.data()?.reservedUnits ?? 0) > 0, "方案預約堂數狀態不一致", 409, "CREDIT_STATE_MISMATCH");
+    if (outcome === "completed") assert(Number(batch.data()?.remainingUnits ?? 0) > 0, "方案剩餘堂數不足", 409, "CREDIT_STATE_MISMATCH");
 
     const nextSummary = outcome === "completed" ? consumeReservedCredit(summary) : releaseCredit(summary);
     const now = Timestamp.now();
     tx.update(studentRef, { credits: nextSummary, updatedAt: now });
+    tx.update(batchRef, {
+      remainingUnits: outcome === "completed" ? Number(batch.data()!.remainingUnits) - 1 : Number(batch.data()!.remainingUnits),
+      reservedUnits: Number(batch.data()!.reservedUnits ?? 0) - 1,
+    });
     tx.update(sessionRef, {
       status: outcome,
       completedAt: now,
@@ -395,13 +470,14 @@ export async function confirmOutcome(
       incompleteNote: outcome === "not_completed" ? note?.trim() : FieldValue.delete(),
       updatedAt: now,
     });
-    if (batch) {
-      tx.update(batch.ref, { remainingUnits: Number(batch.data().remainingUnits) - 1 });
+    if (outcome === "completed") {
       tx.set(db.collection("creditLedgers").doc(), {
         userId: data.studentId,
         type: "consume",
         quantity: -1,
         batchId: batch.id,
+        planId: data.planId,
+        planName: data.planName,
         sessionId,
         actorId: principal.userId,
         createdAt: now,
@@ -438,15 +514,18 @@ export async function cancelSession(principal: SessionPrincipal, sessionId: stri
     const session = await tx.get(sessionRef);
     if (!session.exists) throw new AppError("找不到課程", 404, "SESSION_NOT_FOUND");
     const data = session.data()!;
-    assert((data.startAt.toDate() as Date).getTime() > Date.now(), "只能取消尚未發生的課程");
     assert(["scheduled", "checked_in"].includes(data.status), "此課程無法取消");
     const studentRef = db.collection("users").doc(data.studentId);
     const slotRef = db.collection("timeSlots").doc(slotId(data.startAt.toDate()));
     const student = await tx.get(studentRef);
     const slot = await tx.get(slotRef);
+    const batchRef = studentRef.collection("creditBatches").doc(data.creditBatchId);
+    const batch = await tx.get(batchRef);
     if (!student.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
+    if (!batch.exists) throw new AppError("找不到課程對應的方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
     const now = Timestamp.now();
     tx.update(studentRef, { credits: releaseCredit(creditSummary(student.data())), updatedAt: now });
+    tx.update(batchRef, { reservedUnits: Math.max(0, Number(batch.data()?.reservedUnits ?? 0) - 1) });
     tx.update(sessionRef, {
       status: "cancelled",
       cancelledAt: now,

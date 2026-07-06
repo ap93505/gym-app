@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -10,6 +10,7 @@ import type { DatesSetArg, EventClickArg } from "@fullcalendar/core";
 import { Modal } from "./Modal";
 import { CalendarStatusLegend } from "./CalendarStatusLegend";
 import { sessionStatusColor, sessionStatusLabels } from "@/lib/domain/sessionPresentation";
+import { calendarDayTitleFormat, useCalendarSwipe } from "./calendarInteractions";
 
 export type SessionItem = {
   id: string;
@@ -17,6 +18,8 @@ export type SessionItem = {
   coachId: string;
   studentName: string;
   coachName: string;
+  planId: string;
+  planName: string;
   startAt: string;
   endAt: string;
   status: string;
@@ -47,19 +50,27 @@ export function formatMemberDateTime(value: string) {
   const date = new Date(value);
   const parts = new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
   }).formatToParts(date);
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
-  const weekday = part("weekday").replace("週", "");
-  return `${part("month")}/${part("day")}(${weekday}) ${part("dayPeriod")} ${part("hour")}點${part("minute")}分`;
+  return `${part("hour")}點${part("minute")}分`;
+}
+
+export function formatMemberTime(value: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Taipei",
+    hour: "numeric",
+    hour12: true,
+  }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("dayPeriod").toUpperCase()} ${part("hour")}點`;
 }
 
 export function MemberSchedule() {
+  const calendarRef = useRef<FullCalendar>(null);
+  const swipeHandlers = useCalendarSwipe(calendarRef);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [selected, setSelected] = useState<SessionItem | null>(null);
   const [selectedAt, setSelectedAt] = useState(0);
@@ -99,10 +110,13 @@ export function MemberSchedule() {
       <CalendarStatusLegend />
       {loading && <div className="muted">載入預約中…</div>}
       {error && <div className="notice error">{error}</div>}
+      <div className="calendar-swipe-surface" {...swipeHandlers}>
       <FullCalendar
+        ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         locale={zhTwLocale}
         initialView="dayGridMonth"
+        views={{ timeGridDay: { titleFormat: calendarDayTitleFormat } }}
         headerToolbar={{ left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,timeGridDay" }}
         buttonText={{ today: "今天", month: "月", week: "週", day: "日" }}
         allDaySlot={false}
@@ -116,11 +130,12 @@ export function MemberSchedule() {
         fixedWeekCount={false}
         height="auto"
       />
+      </div>
       {!loading && !error && !sessions.length && <div className="notice">這個區間目前沒有預約。</div>}
     </section>
     <Modal open={!!selected} title={selected ? formatMemberDate(selected.startAt) : "預約資訊"} onClose={() => setSelected(null)}>
       {selected && <div className="stack member-session-detail">
-        <div className="member-session-copy">教練: {selected.coachName}<br />學生: {selected.studentName}</div>
+        <div className="member-session-copy">教練: {selected.coachName}<br />學生: {selected.studentName}<br />方案: {selected.planName}</div>
         <div><span className={`badge status-${selected.status}`}>{sessionStatusLabels[selected.status] ?? selected.status}</span></div>
         <div className="form-actions">
           {canAddToCalendar && <a className="button" href={`/api/sessions/${selected.id}/ics`}>加入行事曆</a>}

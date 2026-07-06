@@ -6,6 +6,14 @@ export type CreditSummary = {
   reserved: number;
 };
 
+export type CreditPlanSummary = {
+  planId: string;
+  planName: string;
+  totalRemaining: number;
+  reserved: number;
+  available: number;
+};
+
 export type AppUser = {
   id: string;
   lineUserId: string;
@@ -45,6 +53,8 @@ export type ClassSession = {
   studentName: string;
   coachId: string;
   coachName: string;
+  planId: string;
+  planName: string;
   startAt: Date;
   endAt: Date;
   status: SessionStatus;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -11,8 +11,11 @@ import { Modal } from "./Modal";
 import { CalendarStatusLegend } from "./CalendarStatusLegend";
 import { formatMemberDate, type SessionItem } from "./MemberSchedule";
 import { sessionStatusColor, sessionStatusLabels } from "@/lib/domain/sessionPresentation";
+import { calendarDayTitleFormat, useCalendarSwipe } from "./calendarInteractions";
 
 export function DashboardMonthCalendar() {
+  const calendarRef = useRef<FullCalendar>(null);
+  const swipeHandlers = useCalendarSwipe(calendarRef);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [selected, setSelected] = useState<SessionItem | null>(null);
   const [error, setError] = useState("");
@@ -40,10 +43,13 @@ export function DashboardMonthCalendar() {
       <div className="page-heading"><div><h3>預約課程</h3><p className="muted">預設顯示今天，可切換日、週或月檢視。</p></div></div>
       <CalendarStatusLegend />
       {error && <div className="notice error">{error}</div>}
+      <div className="calendar-swipe-surface" {...swipeHandlers}>
       <FullCalendar
+        ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         locale={zhTwLocale}
         initialView="timeGridDay"
+        views={{ timeGridDay: { titleFormat: calendarDayTitleFormat } }}
         headerToolbar={{ left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,dayGridMonth" }}
         buttonText={{ today: "今天", day: "日", week: "週", month: "月" }}
         allDaySlot={false}
@@ -59,9 +65,10 @@ export function DashboardMonthCalendar() {
         fixedWeekCount={false}
         height="auto"
       />
+      </div>
     </section>
     <Modal open={!!selected} title="課程資訊" onClose={() => setSelected(null)}>
-      {selected && <div><h3>{formatMemberDate(selected.startAt)}</h3><p>教練：{selected.coachName}<br />學生：{selected.studentName}</p><span className={`badge status-${selected.status}`}>{sessionStatusLabels[selected.status] ?? selected.status}</span></div>}
+      {selected && <div><h3>{formatMemberDate(selected.startAt)}</h3><p>教練：{selected.coachName}<br />學生：{selected.studentName}<br />方案：{selected.planName}</p><span className={`badge status-${selected.status}`}>{sessionStatusLabels[selected.status] ?? selected.status}</span></div>}
     </Modal>
   </>;
 }

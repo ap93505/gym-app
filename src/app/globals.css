@@ -42,6 +42,9 @@ html[data-theme="future"] {
   --credit-reserved-text: #ffc766;
   --credit-available-bg: #0b2736;
   --credit-available-text: #79d1ff;
+  --slot-available-bg: rgba(56, 176, 112, .16);
+  --slot-limited-bg: rgba(255, 181, 77, .2);
+  --slot-full-bg: rgba(255, 59, 69, .22);
 }
 
 html[data-theme="minimal"] {
@@ -87,6 +90,9 @@ html[data-theme="minimal"] {
   --credit-reserved-text: #8d641d;
   --credit-available-bg: #e2f0f8;
   --credit-available-text: #326d8c;
+  --slot-available-bg: rgba(75, 150, 105, .14);
+  --slot-limited-bg: rgba(202, 147, 47, .2);
+  --slot-full-bg: rgba(184, 70, 70, .2);
 }
 
 * { box-sizing: border-box; }
@@ -182,6 +188,8 @@ textarea.input { min-height: 88px; resize: vertical; }
 .badge.status-not_completed { background: var(--not-completed-bg); color: var(--not-completed-text); }
 .badge.status-cancelled { background: var(--cancelled-bg); color: var(--cancelled-text); }
 .credit-badges, .role-badges { display: flex; flex-wrap: wrap; gap: 7px; }
+.plan-credit-list { display: grid; gap: 10px; }
+.plan-credit-row { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .role-badges { margin: 16px 0; }
 .badge.credit-total { background: var(--credit-total-bg); color: var(--credit-total-text); }
 .badge.credit-reserved { background: var(--credit-reserved-bg); color: var(--credit-reserved-text); }
@@ -231,6 +239,16 @@ th { color: var(--muted); font-size: 12px; font-weight: 600; }
 .fc .fc-event.event-not_completed { border-color: #c75b5b; }
 .fc .fc-event.event-cancelled { border-color: #806d86; }
 .fc .event-completed, .fc .event-cancelled { opacity: .72; }
+.calendar-swipe-surface { touch-action: pan-y; }
+.fc .fc-bg-event.slot-available { background: var(--slot-available-bg); opacity: 1; }
+.fc .fc-bg-event.slot-limited { background: var(--slot-limited-bg); opacity: 1; }
+.fc .fc-bg-event.slot-full { background: var(--slot-full-bg); opacity: 1; }
+.slot-capacity-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: -4px 0 14px; color: var(--muted); font-size: 12px; }
+.slot-capacity-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.slot-capacity-legend i { width: 11px; height: 11px; border: 1px solid var(--line); border-radius: 3px; }
+.slot-capacity-legend i.slot-available { background: var(--slot-available-bg); }
+.slot-capacity-legend i.slot-limited { background: var(--slot-limited-bg); }
+.slot-capacity-legend i.slot-full { background: var(--slot-full-bg); }
 .calendar-legend { display: flex; flex-wrap: wrap; gap: 8px; }
 .legend-item { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
 .legend-dot { width: 9px; height: 9px; border-radius: 50%; }

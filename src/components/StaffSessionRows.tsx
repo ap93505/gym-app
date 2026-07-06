@@ -16,7 +16,7 @@ export function StaffSessionRows({ sessions, reload }: { sessions: SessionItem[]
   const counts = useMemo(() => sessions.reduce<Record<string, number>>((map, session) => { if (!session.status.includes("cancel")) map[session.startAt] = (map[session.startAt] ?? 0) + 1; return map; }, {}), [sessions]);
   async function save(session: SessionItem) {
     const startAt = new Date(edits[session.id] ?? localInput(session.startAt));
-    const response = await fetch(`/api/sessions/${session.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId: session.studentId, coachId: session.coachId, startAt: startAt.toISOString() }) });
+    const response = await fetch(`/api/sessions/${session.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId: session.studentId, coachId: session.coachId, planId: session.planId, startAt: startAt.toISOString() }) });
     const body = await response.json(); setMessage(response.ok ? "課程時間已更新" : body.error?.message ?? "更新失敗"); if (response.ok) reload();
   }
   async function cancel(session: SessionItem) {
@@ -28,7 +28,7 @@ export function StaffSessionRows({ sessions, reload }: { sessions: SessionItem[]
     const canEdit = session.status === "scheduled" && new Date(session.startAt) > new Date() && !!me && (me.roles.includes("admin") || (me.roles.includes("coach") && me.id === session.coachId));
     return <article className={`session-row status-${session.status}`} style={{ borderLeft: `5px solid hsl(${hue(session.coachId)} 28% 58%)` }} key={session.id}>
       <div><strong>{formatDate(session.startAt)}</strong><div className="muted">同時段 {counts[session.startAt] ?? 0} / 3 組</div></div>
-      <div><div>{session.coachName} × {session.studentName}</div><span className={`badge status-${session.status}`}>{labels[session.status]}</span></div>
+      <div><div>{session.coachName} × {session.studentName}</div><div className="muted">{session.planName}</div><span className={`badge status-${session.status}`}>{labels[session.status]}</span></div>
       <div className="actions">{canEdit && <><input className="input" style={{ width: 205 }} type="datetime-local" value={edits[session.id] ?? localInput(session.startAt)} onChange={(e) => setEdits({ ...edits, [session.id]: e.target.value })} /><button className="button secondary small" onClick={() => save(session)}>改期</button></>}{canEdit && me?.roles.includes("admin") && <button className="button danger small" onClick={() => cancel(session)}>取消</button>}</div>
     </article>;
   })}</div></div>;

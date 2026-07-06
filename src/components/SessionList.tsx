@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 export type SessionItem = {
-  id: string; studentId: string; coachId: string; studentName: string; coachName: string; startAt: string; endAt: string; status: string;
+  id: string; studentId: string; coachId: string; studentName: string; coachName: string; planId: string; planName: string; startAt: string; endAt: string; status: string;
   checkedInAt?: string; incompleteReason?: string; incompleteNote?: string;
 };
 
@@ -19,7 +19,7 @@ export function SessionRows({ sessions }: { sessions: SessionItem[] }) {
   return <div className="session-list">{sessions.map((session) => (
     <article className={`session-row status-${session.status}`} key={session.id}>
       <strong>{formatDate(session.startAt)}</strong>
-      <div><div>{session.coachName} × {session.studentName}</div><span className={`badge status-${session.status}`}>{statusLabels[session.status] ?? session.status}</span></div>
+      <div><div>{session.coachName} × {session.studentName}</div><div className="muted">{session.planName}</div><span className={`badge status-${session.status}`}>{statusLabels[session.status] ?? session.status}</span></div>
       <a className="button secondary small" href={`/api/sessions/${session.id}/ics`}>加入行事曆</a>
     </article>
   ))}</div>;

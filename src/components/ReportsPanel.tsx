@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { sessionStatusLabels } from "@/lib/domain/sessionPresentation";
 
 type Row = { coachId: string; coachName: string; completed: number; pending: number; notCompleted: number };
-type Detail = { id: string; coachId: string; coachName: string; studentName: string; startAt: string; endAt: string; status: string };
+type Detail = { id: string; coachId: string; coachName: string; studentName: string; planId: string; planName: string; startAt: string; endAt: string; status: string };
+type CoachColumn = { coachId: string; coachName: string };
+type PlanRow = { planId: string; planName: string; price: number; byCoach: Record<string, number>; total: number };
 
 function dateInput(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
 function csvCell(value: string | number) { return `"${String(value).replaceAll('"', '""')}"`; }
@@ -17,6 +19,7 @@ function reportDetailStatus(detail: Detail) {
   if (["scheduled", "checked_in"].includes(detail.status) && new Date(detail.endAt).getTime() <= Date.now()) return "待確認";
   return sessionStatusLabels[detail.status] ?? detail.status;
 }
+function money(value: number) { return `NT$ ${value.toLocaleString("zh-TW")}`; }
 
 export function ReportsPanel() {
   const initialFrom = new Date(); initialFrom.setDate(1);
@@ -25,6 +28,8 @@ export function ReportsPanel() {
   const [to, setTo] = useState(dateInput(initialTo));
   const [rows, setRows] = useState<Row[]>([]);
   const [details, setDetails] = useState<Detail[]>([]);
+  const [coachColumns, setCoachColumns] = useState<CoachColumn[]>([]);
+  const [planRows, setPlanRows] = useState<PlanRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -36,7 +41,7 @@ export function ReportsPanel() {
       const response = await fetch(`/api/reports/coaches?from=${fromDate.toISOString()}&to=${toDate.toISOString()}`, { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error?.message ?? "報表載入失敗");
-      setRows(body.rows ?? []); setDetails(body.details ?? []);
+      setRows(body.rows ?? []); setDetails(body.details ?? []); setCoachColumns(body.coachColumns ?? []); setPlanRows(body.planRows ?? []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "報表載入失敗");
     } finally {
@@ -53,7 +58,7 @@ export function ReportsPanel() {
         if (!response.ok) throw new Error(body.error?.message ?? "報表載入失敗");
         return body;
       })
-      .then((body) => { setRows(body.rows ?? []); setDetails(body.details ?? []); })
+      .then((body) => { setRows(body.rows ?? []); setDetails(body.details ?? []); setCoachColumns(body.coachColumns ?? []); setPlanRows(body.planRows ?? []); })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "報表載入失敗"))
       .finally(() => setLoading(false));
   }, []);
@@ -64,6 +69,7 @@ export function ReportsPanel() {
     notCompleted: sum.notCompleted + row.notCompleted,
   }), { completed: 0, pending: 0, notCompleted: 0 }), [rows]);
   const maxCount = Math.max(1, ...rows.map((row) => row.completed + row.pending + row.notCompleted));
+  const coachPlanTotals = useMemo(() => Object.fromEntries(coachColumns.map((coach) => [coach.coachId, planRows.reduce((sum, plan) => sum + (plan.byCoach[coach.coachId] ?? 0), 0)])), [coachColumns, planRows]);
 
   function exportCsv() {
     const summary: Array<Array<string | number>> = [
@@ -71,8 +77,12 @@ export function ReportsPanel() {
       ...rows.map((row) => [row.coachName, row.completed, row.pending, row.notCompleted]),
       ["所有教練加總", total.completed, total.pending, total.notCompleted],
       [],
-      ["教練", "日期與時段", "學生", "狀態"],
-      ...details.map((detail) => [detail.coachName, detailTimeRange(detail.startAt, detail.endAt), detail.studentName, reportDetailStatus(detail)]),
+      ["方案 / 教練", "價格（課程/堂）", ...coachColumns.map((coach) => coach.coachName), "方案合計"],
+      ...planRows.map((plan) => [plan.planName, plan.price, ...coachColumns.map((coach) => plan.byCoach[coach.coachId] ?? 0), `${plan.price} × ${plan.total} = ${plan.price * plan.total}`]),
+      ["教練合計", "－", ...coachColumns.map((coach) => coachPlanTotals[coach.coachId] ?? 0), money(planRows.reduce((sum, plan) => sum + plan.price * plan.total, 0))],
+      [],
+      ["教練", "日期與時段", "學生", "方案", "狀態"],
+      ...details.map((detail) => [detail.coachName, detailTimeRange(detail.startAt, detail.endAt), detail.studentName, detail.planName, reportDetailStatus(detail)]),
     ];
     const blob = new Blob(["\uFEFF" + summary.map((line) => line.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `coach-report-${from}-${to}.csv`; link.click(); URL.revokeObjectURL(link.href);
@@ -83,5 +93,6 @@ export function ReportsPanel() {
     {error && <div className="notice error">{error}</div>}
     <section className="card stack"><div><h3>區間堂數分布</h3><div className="calendar-status-legend"><span className="badge status-completed">完成</span><span className="badge status-checked_in">待確認</span><span className="badge status-not_completed">未完成</span></div></div><div className="stacked-chart" role="img" aria-label="各教練完成、待確認及未完成堂數堆疊柱狀圖">{rows.map((row) => { const count = row.completed + row.pending + row.notCompleted; return <div className="chart-column" key={row.coachId}><div className="chart-value">{count}</div><div className="chart-track"><div className="chart-stack" style={{ height: `${count / maxCount * 100}%` }} title={`${row.coachName}：完成 ${row.completed}、待確認 ${row.pending}、未完成 ${row.notCompleted}`}><span className="chart-segment completed" style={{ flexGrow: row.completed }} /><span className="chart-segment pending" style={{ flexGrow: row.pending }} /><span className="chart-segment not-completed" style={{ flexGrow: row.notCompleted }} /></div></div><div className="chart-label">{row.coachName}</div></div>; })}</div></section>
     <section className="card"><div className="table-wrap"><table><thead><tr><th>教練</th><th>完成堂數</th><th>待確認</th><th>未完成</th></tr></thead><tbody>{rows.map((row) => <tr key={row.coachId}><td>{row.coachName}</td><td><strong>{row.completed}</strong></td><td>{row.pending}</td><td>{row.notCompleted}</td></tr>)}<tr className="report-total"><td>所有教練加總</td><td><strong>{total.completed}</strong></td><td><strong>{total.pending}</strong></td><td><strong>{total.notCompleted}</strong></td></tr></tbody></table></div></section>
+    <section className="card stack"><div><h3>方案 × 教練完成堂數</h3><p className="muted">縱軸為方案，橫軸為教練，僅統計已完成課程。</p></div><div className="table-wrap"><table><thead><tr><th>方案</th><th>價格（課程/堂）</th>{coachColumns.map((coach) => <th key={coach.coachId}>{coach.coachName}</th>)}<th>方案合計</th></tr></thead><tbody>{planRows.map((plan) => <tr key={plan.planId}><td><strong>{plan.planName}</strong></td><td>{money(plan.price)}</td>{coachColumns.map((coach) => <td key={coach.coachId}>{plan.byCoach[coach.coachId] ?? 0}</td>)}<td><strong>{money(plan.price)} × {plan.total} = {money(plan.price * plan.total)}</strong></td></tr>)}<tr className="report-total"><td>教練合計</td><td>－</td>{coachColumns.map((coach) => <td key={coach.coachId}><strong>{coachPlanTotals[coach.coachId] ?? 0}</strong></td>)}<td><strong>{money(planRows.reduce((sum, plan) => sum + plan.price * plan.total, 0))}</strong></td></tr></tbody></table></div></section>
   </div>;
 }

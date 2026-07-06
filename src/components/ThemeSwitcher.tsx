@@ -30,8 +30,8 @@ export function ThemeSwitcher() {
   return (
     <div className="theme-nav-item" role="group" aria-label="主題">
       <span className="theme-nav-label">主題</span>
-      <button type="button" className="theme-option" aria-pressed={theme === "future"} onClick={() => setTheme("future")}>未來風</button>
-      <button type="button" className="theme-option" aria-pressed={theme === "minimal"} onClick={() => setTheme("minimal")}>簡約風</button>
+      <button type="button" className="theme-option" aria-pressed={theme === "future"} onClick={() => setTheme("future")}>預設</button>
+      <button type="button" className="theme-option" aria-pressed={theme === "minimal"} onClick={() => setTheme("minimal")}>簡約</button>
     </div>
   );
 }

@@ -2,11 +2,12 @@ import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiPrincipal } from "@/lib/auth/session";
 import { apiError } from "@/lib/http";
-import { createSessions, listSessions } from "@/lib/services/sessions";
+import { createSessions, listSessions, listSlotAvailability } from "@/lib/services/sessions";
 
 const createSchema = z.object({
   studentId: z.string().min(1),
   coachId: z.string().min(1),
+  planId: z.string().min(1),
   startAt: z.coerce.date(),
   recurrence: z.object({
     frequency: z.enum(["none", "daily", "weekly", "monthly"]),
@@ -24,7 +25,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: { message: "查詢日期無效" } }, { status: 400 });
     }
     const mineOnly = request.nextUrl.searchParams.get("scope") === "mine";
-    return NextResponse.json({ sessions: await listSessions(from, to, principal, mineOnly) });
+    const [sessions, slots] = await Promise.all([
+      listSessions(from, to, principal, mineOnly),
+      listSlotAvailability(from, to),
+    ]);
+    return NextResponse.json({ sessions, slots });
   } catch (error) {
     return apiError(error);
   }
