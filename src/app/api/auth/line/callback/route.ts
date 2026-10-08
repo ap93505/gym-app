@@ -8,14 +8,14 @@ import { getAppUrl } from "@/lib/env";
 import type { Role } from "@/lib/domain/types";
 
 export async function GET(request: NextRequest) {
+  const store = await cookies();
+  const returnTo = safeReturnTo(store.get("line_oauth_return")?.value ?? null);
   try {
-    const store = await cookies();
     const code = request.nextUrl.searchParams.get("code");
     const state = request.nextUrl.searchParams.get("state");
     const savedState = store.get("line_oauth_state")?.value;
     const nonce = store.get("line_oauth_nonce")?.value;
     const verifier = store.get("line_oauth_verifier")?.value;
-    const returnTo = safeReturnTo(store.get("line_oauth_return")?.value ?? null);
     if (!code || !state || state !== savedState || !nonce || !verifier) {
       throw new Error("LINE OAuth callback state mismatch");
     }
@@ -51,6 +51,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL(returnTo, getAppUrl()));
   } catch (error) {
     console.error(error);
-    return NextResponse.redirect(new URL("/login?error=line", getAppUrl()));
+    return NextResponse.redirect(new URL(`/login?${new URLSearchParams({ error: "line", returnTo })}`, getAppUrl()));
   }
 }

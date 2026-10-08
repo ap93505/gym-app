@@ -121,6 +121,16 @@ https://YOUR_DOMAIN/api/auth/line/callback
 
 ## 驗證
 
+### 櫃台 QR Code 報到
+
+- 管理員在後台選單開啟「報到 QR Code」（`/dashboard/check-in-qr`），可切換全螢幕供會員掃描。
+- QR Code 每 60 秒更新；每個連結自產生起有效 10 分鐘，更新後舊連結仍在原效期內有效，供會員完成 LINE 登入。
+- 會員用手機相機開啟 `/check-in?token=...`；已有本站 Session 時直接顯示課程，否則經 LINE Login 返回原掃碼頁。登入失敗重試也會保留返回位置。
+- 只顯示本人在上課前 30 分鐘至下課後 60 分鐘內的預約與已報到課程；多堂時讓會員選擇，按「確認報到」才寫入。重送已完成的報到不會重複寫入或扣堂。
+- QR 簽章由 `SESSION_SECRET` 衍生獨立用途的金鑰；產生 API 限 admin，掃碼 API 同時驗證 QR、登入帳號、課程歸屬及報到時段。QR 圖片於本站產生，無第三方 QR 服務。
+- 手機必須能連到 `APP_URL`，請使用正式 HTTPS 網址或 `npm run dev:ngrok`，不要用手機掃描指向電腦 localhost 的網址。LINE Developers 的 Callback URL 須使用同一個網站網域。
+- 原有會員「打卡上課」及管理員補登功能保留。QR 是新增入口，不代表所有報到都強制掃碼，也無法阻止有效連結在效期內被轉傳。
+
 ```powershell
 npm run lint
 npm test

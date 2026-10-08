@@ -8,6 +8,7 @@ export function StaffNav({ principal, pendingCount = 0 }: { principal: SessionPr
     { href: "/dashboard/calendar", label: "行事曆" },
     { href: "/dashboard/pending", label: "待確認", dot: pendingCount > 0 },
     ...(admin ? [
+      { href: "/dashboard/check-in-qr", label: "報到 QR Code" },
       { href: "/dashboard/members", label: "會員" },
       { href: "/dashboard/plans", label: "方案" },
       { href: "/dashboard/reports", label: "報表" },

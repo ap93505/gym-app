@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getServerEnv } from "@/lib/env";
 import { AppError } from "@/lib/domain/errors";
+export { safeReturnTo } from "./returnTo";
 
 export function randomUrlSafe(bytes = 32) {
   return randomBytes(bytes).toString("base64url");
@@ -8,11 +9,6 @@ export function randomUrlSafe(bytes = 32) {
 
 export function createPkceChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
-}
-
-export function safeReturnTo(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/member/account";
-  return value;
 }
 
 export async function exchangeLineCode(code: string, verifier: string) {

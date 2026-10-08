@@ -5,10 +5,9 @@ import { consumeReservedCredit, releaseCredit, reserveCredits } from "@/lib/doma
 import { generateOccurrences, type RecurrenceRule } from "@/lib/domain/recurrence";
 import type { IncompleteReason, Role, SessionPrincipal, SessionStatus } from "@/lib/domain/types";
 import { creditSummary } from "./users";
+import { CHECK_IN_BEFORE_MS, CHECK_IN_AFTER_MS, isCheckInOpen, selfCheckInAction } from "@/lib/domain/checkIn";
 
 const HOUR_MS = 60 * 60 * 1000;
-const CHECK_IN_BEFORE_MS = 30 * 60 * 1000;
-const CHECK_IN_AFTER_MS = 60 * 60 * 1000;
 const MAX_GROUPS_PER_SLOT = 3;
 
 function assertBookableStart(start: Date) {
@@ -368,7 +367,7 @@ export async function listSlotAvailability(from: Date, to: Date) {
   }));
 }
 
-export async function eligibleCheckins(userId: string) {
+export async function eligibleCheckins(userId: string, currentOnly = false) {
   const now = new Date();
   const snapshot = await db
     .collection("sessions")
@@ -376,7 +375,9 @@ export async function eligibleCheckins(userId: string) {
     .get();
   return snapshot.docs
     .map(sessionJson)
-    .filter((session) => session.status === "scheduled" && new Date(session.endAt).getTime() + CHECK_IN_AFTER_MS >= now.getTime())
+    .filter((session) => currentOnly
+      ? ["scheduled", "checked_in"].includes(session.status) && isCheckInOpen(new Date(session.startAt), new Date(session.endAt), now)
+      : session.status === "scheduled" && new Date(session.endAt).getTime() + CHECK_IN_AFTER_MS >= now.getTime())
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
     .slice(0, 10)
     .map((session) => {
@@ -402,12 +403,14 @@ export async function checkIn(principal: SessionPrincipal, sessionId: string, st
     if (!session.exists) throw new AppError("找不到課程", 404, "SESSION_NOT_FOUND");
     const data = session.data()!;
     assert(data.studentId === targetStudentId, "此課程不屬於指定學生", 403, "FORBIDDEN");
-    assert(data.status === "scheduled", "此課程無法重複報到", 409, "INVALID_SESSION_STATUS");
     const now = new Date();
     const start = data.startAt.toDate() as Date;
     const end = data.endAt.toDate() as Date;
     if (!studentId) {
-      assert(now.getTime() >= start.getTime() - CHECK_IN_BEFORE_MS && now.getTime() <= end.getTime() + CHECK_IN_AFTER_MS, "目前不在可報到時間內");
+      const action = selfCheckInAction({ studentId: data.studentId, status: data.status, startAt: start, endAt: end }, principal.userId, now);
+      if (action === "already_checked_in") return;
+    } else {
+      assert(data.status === "scheduled", "此課程無法重複報到", 409, "INVALID_SESSION_STATUS");
     }
     tx.update(ref, {
       status: "checked_in",
