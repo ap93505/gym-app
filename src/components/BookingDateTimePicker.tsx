@@ -1,9 +1,9 @@
 "use client";
 
-const hours = Array.from({ length: 12 }, (_, index) => index + 10);
+const hours = Array.from({ length: 18 }, (_, index) => index + 6);
 
 export function BookingDateTimePicker({ value, onChange, minDate }: { value: string; onChange: (value: string) => void; minDate?: string }) {
-  const [date = "", time = "10:00"] = value.split("T");
+  const [date = "", time = "06:00"] = value.split("T");
   const update = (nextDate: string, nextTime: string) => onChange(`${nextDate}T${nextTime}`);
 
   return (

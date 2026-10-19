@@ -121,8 +121,8 @@ export function MemberSchedule() {
         buttonText={{ today: "今天", month: "月", week: "週", day: "日" }}
         allDaySlot={false}
         slotDuration="01:00:00"
-        slotMinTime="10:00:00"
-        slotMaxTime="22:00:00"
+        slotMinTime="06:00:00"
+        slotMaxTime="24:00:00"
         events={events}
         eventClick={(info: EventClickArg) => { setSelectedAt(Date.now()); setSelected(info.event.extendedProps.session as SessionItem); }}
         datesSet={(info: DatesSetArg) => void load(info)}

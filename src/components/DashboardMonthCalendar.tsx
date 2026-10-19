@@ -54,9 +54,9 @@ export function DashboardMonthCalendar() {
         buttonText={{ today: "今天", day: "日", week: "週", month: "月" }}
         allDaySlot={false}
         slotDuration="01:00:00"
-        slotMinTime="10:00:00"
-        slotMaxTime="22:00:00"
-        scrollTime="10:00:00"
+        slotMinTime="06:00:00"
+        slotMaxTime="24:00:00"
+        scrollTime="06:00:00"
         nowIndicator
         events={events}
         eventClick={(info: EventClickArg) => setSelected(info.event.extendedProps.session as SessionItem)}

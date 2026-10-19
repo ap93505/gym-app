@@ -1,48 +1,65 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { formatMemberDate, formatMemberDateTime, formatMemberTime, type SessionItem } from "./MemberSchedule";
 
-type Session = { id: string; coachName: string; startAt: string; endAt: string; status: string };
-
-function time(value: string) {
-  return new Intl.DateTimeFormat("zh-TW", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Taipei" }).format(new Date(value));
-}
+type CheckInSession = SessionItem & { canCheckIn: boolean; checkInOpensAt: string; checkInClosesAt: string };
 
 export function CheckInPanel() {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<CheckInSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  async function load() {
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
     setLoading(true);
+    setError("");
     const response = await fetch("/api/sessions/check-in-eligible", { cache: "no-store" });
     const body = await response.json();
-    setSessions(body.sessions ?? []); setLoading(false);
-  }
+    if (!response.ok) setError(body.error?.message ?? "讀取課程失敗");
+    else setSessions(body.sessions ?? []);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     fetch("/api/sessions/check-in-eligible", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((body) => setSessions(body.sessions ?? []))
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error?.message ?? "讀取課程失敗");
+        setSessions(body.sessions ?? []);
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "讀取課程失敗"))
       .finally(() => setLoading(false));
   }, []);
+
   async function checkIn(id: string) {
     setMessage("");
-    const response = await fetch(`/api/sessions/${id}/check-in`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const response = await fetch(`/api/sessions/${id}/check-in`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
     const body = await response.json();
-    setMessage(response.ok ? `您已於 ${time(new Date().toISOString())} 完成報到。` : body.error?.message ?? "報到失敗");
+    setMessage(response.ok ? "報到完成，請安心上課。" : body.error?.message ?? "報到失敗");
     if (response.ok) await load();
   }
-  if (loading) return <div className="card">正在確認目前課程…</div>;
+
+  if (loading) return <div className="card">正在讀取你的課程…</div>;
   return (
     <div className="stack">
+      {error && <div className="notice error">{error}</div>}
       {message && <div className={message.includes("失敗") ? "notice error" : "notice"}>{message}</div>}
-      {sessions.length === 0 ? (
-        <div className="card"><h3>目前沒有可報到課程</h3><p className="muted">報到時間為課程開始前 30 分鐘至課程結束。</p></div>
-      ) : sessions.map((session) => (
-        <div className="card" key={session.id}>
-          <p className="eyebrow">Ready to check in</p><h2>{time(session.startAt)}</h2>
-          <p className="muted">教練：{session.coachName} ・ 一小時課程</p>
-          <button className="button" onClick={() => checkIn(session.id)}>確認報到</button>
-        </div>
+      {!sessions.length && <div className="card"><h3>目前沒有已預約課程</h3><p className="muted">建立預約後，可報到及即將到來的課程都會顯示在此。</p></div>}
+      {sessions.map((session) => (
+        <article className="card stack" key={session.id}>
+          <div>
+            <span className={`badge ${session.canCheckIn ? "" : "warn"}`}>{session.canCheckIn ? "現在可報到" : "即將到來"}</span>
+            <h2 style={{ marginTop: 12 }}>上課時間：{formatMemberDate(session.startAt)}～{formatMemberTime(session.endAt)}</h2>
+            <p>教練：{session.coachName} ・ 方案：{session.planName} ・ 一小時課程</p>
+          </div>
+          {!session.canCheckIn && <div className="notice">報到將於 {formatMemberDateTime(session.checkInOpensAt)} ～ {formatMemberDateTime(session.checkInClosesAt)} 開放。</div>}
+          <div className="form-actions"><button className="button" disabled={!session.canCheckIn} onClick={() => checkIn(session.id)}>確認報到</button></div>
+        </article>
       ))}
     </div>
   );

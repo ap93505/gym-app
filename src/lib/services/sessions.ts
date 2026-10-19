@@ -13,7 +13,7 @@ const MAX_GROUPS_PER_SLOT = 3;
 function assertBookableStart(start: Date) {
   const taipeiHour = (start.getUTCHours() + 8) % 24;
   assert(start.getUTCMinutes() === 0 && start.getUTCSeconds() === 0, "課程必須從整點開始");
-  assert(taipeiHour >= 10 && taipeiHour < 22, "可預約時段為上午 10 點至晚上 10 點");
+  assert(taipeiHour >= 6 && taipeiHour < 24, "可預約時段為上午 6 點至午夜 12 點");
 }
 
 function taipeiDateKey(date: Date) {
