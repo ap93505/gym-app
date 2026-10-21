@@ -25,11 +25,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: { message: "查詢日期無效" } }, { status: 400 });
     }
     const mineOnly = request.nextUrl.searchParams.get("scope") === "mine";
-    const [sessions, slots] = await Promise.all([
+    const [sessions, availability] = await Promise.all([
       listSessions(from, to, principal, mineOnly),
       listSlotAvailability(from, to),
     ]);
-    return NextResponse.json({ sessions, slots });
+    return NextResponse.json({ sessions, ...availability });
   } catch (error) {
     return apiError(error);
   }

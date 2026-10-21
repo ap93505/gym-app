@@ -6,8 +6,11 @@ import type { IncompleteReason, Role, SessionPrincipal, SessionStatus } from "@/
 import { accessibleBatches, batchOwnerId, sessionBatchRef, updateOwnerBalance } from "./creditBatches";
 import { CHECK_IN_BEFORE_MS, CHECK_IN_AFTER_MS, isCheckInOpen, selfCheckInAction } from "@/lib/domain/checkIn";
 
+import { slotCapacityFromData } from "@/lib/domain/scheduling";
+import { getSchedulingSettings, schedulingSettingsRef } from "./settings";
+
 const HOUR_MS = 60 * 60 * 1000;
-const MAX_GROUPS_PER_SLOT = 3;
+
 
 function assertBookableStart(start: Date) {
   const taipeiHour = (start.getUTCHours() + 8) % 24;
@@ -95,6 +98,7 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
   const sessionRefs = occurrences.map(() => db.collection("sessions").doc());
 
   await db.runTransaction(async (tx) => {
+    const capacity = slotCapacityFromData((await tx.get(schedulingSettingsRef())).data());
     const studentRef = db.collection("users").doc(input.studentId);
     const coachRef = db.collection("users").doc(input.coachId);
     const studentSnapshot = await tx.get(studentRef);
@@ -137,7 +141,7 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
     snapshots.forEach((group, index) => {
       const start = occurrences[index];
       const time = formatTaipeiSlot(start);
-      if (Number(group.slot.data()?.count ?? 0) >= MAX_GROUPS_PER_SLOT) conflicts.push(`${time}，該時段已達三組上限`);
+      if (Number(group.slot.data()?.count ?? 0) >= capacity) conflicts.push(`${time}，該時段已達 ${capacity} 堂上限`);
       if (group.coach.exists) conflicts.push(`${time}，${roleLabel(coachName, "教練")}已有安排課程`);
       if (group.student.exists) conflicts.push(`${time}，${roleLabel(studentName, "學生")}已有安排課程`);
     });
@@ -225,6 +229,7 @@ export async function updateSession(
     ensureCanManageCoach(principal, input.coachId);
     assert(data.status === "scheduled", "只有尚未報到的課程可以修改");
 
+    const capacity = slotCapacityFromData((await tx.get(schedulingSettingsRef())).data());
     const oldStart = data.startAt.toDate() as Date;
     const timeChanged = oldStart.getTime() !== input.startAt.getTime();
     const studentChanged = data.studentId !== input.studentId;
@@ -254,8 +259,8 @@ export async function updateSession(
     if (!newCoach.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
     assert((newStudent.data()!.roles as Role[]).includes("student"), "指定帳號不是學生");
     assert((newCoach.data()!.roles as Role[]).includes("coach"), "指定帳號不是教練");
-    if (timeChanged && Number(newSlot.data()?.count ?? 0) >= MAX_GROUPS_PER_SLOT) {
-      throw new AppError("新時段已達三組上限", 409, "SLOT_FULL");
+    if (timeChanged && Number(newSlot.data()?.count ?? 0) >= capacity) {
+      throw new AppError(`新時段已達 ${capacity} 堂上限`, 409, "SLOT_FULL");
     }
     if (newCoachLock?.exists) throw new AppError("教練在新時段已有課程", 409, "COACH_CONFLICT");
     if (newStudentLock?.exists) throw new AppError("學生在新時段已有課程", 409, "STUDENT_CONFLICT");
@@ -355,17 +360,18 @@ export async function listSessions(from: Date, to: Date, principal: SessionPrinc
 }
 
 export async function listSlotAvailability(from: Date, to: Date) {
+  const { slotCapacity } = await getSchedulingSettings();
   const snapshot = await db
     .collection("timeSlots")
     .where("startAt", ">=", Timestamp.fromDate(from))
     .where("startAt", "<", Timestamp.fromDate(to))
     .orderBy("startAt", "asc")
     .get();
-  return snapshot.docs.map((doc) => ({
+  return { slotCapacity, slots: snapshot.docs.map((doc) => ({
     startAt: (doc.data().startAt as Timestamp).toDate().toISOString(),
     count: Number(doc.data().count ?? 0),
-    capacity: MAX_GROUPS_PER_SLOT,
-  }));
+    capacity: slotCapacity,
+  })) };
 }
 
 export async function eligibleCheckins(userId: string, currentOnly = false) {

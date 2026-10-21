@@ -15,7 +15,7 @@ erDiagram
     PLANS ||--o{ SESSIONS : selected_for
     CREDIT_BATCHES ||--o{ SESSIONS : reserves_credit_for
     RECURRENCE_SERIES ||--o{ SESSIONS : groups
-    TIME_SLOTS ||--o{ SESSIONS : contains_up_to_3
+    TIME_SLOTS ||--o{ SESSIONS : capacity_limited
     SESSIONS ||--o| COACH_SLOT_LOCKS : locks_coach
     SESSIONS ||--o| STUDENT_SLOT_LOCKS : locks_student
     CREDIT_BATCHES ||--o{ CREDIT_LEDGERS : records
@@ -32,11 +32,17 @@ erDiagram
 | `plans` | Auto ID | 可購買的課堂方案定義 |
 | `sessions` | Auto ID | 每一堂實際課程預約 |
 | `recurrenceSeries` | Auto ID | 重複課程的系列摘要 |
-| `timeSlots` | 課程開始時間的 Unix milliseconds | 同時段容量計數，最多三組 |
+| `timeSlots` | 課程開始時間的 Unix milliseconds | 同時段容量計數，預設最多 4 堂（可由 Admin 調整） |
 | `coachSlotLocks` | `{coachId}_{startAtMillis}` | 防止同一教練同時段重複預約 |
 | `studentSlotLocks` | `{studentId}_{startAtMillis}` | 防止同一學生同時段重複預約 |
 | `creditLedgers` | Auto ID | 堂數增加與正式扣除流水 |
 | `auditLogs` | Auto ID | 管理操作與課程狀態異動稽核 |
+
+## `settings/scheduling`
+
+管理全館同時段課程上限。`slotCapacity` 為 1 至 100 的整數，沒有設定時預設為 4；`updatedBy`、`updatedAt` 記錄最後修改者及時間。僅 Admin 可從「設定」頁或 `PATCH /api/settings/scheduling` 修改，並寫入 `settings.scheduling_updated` audit log。
+
+新增及移動課程會在同一交易內讀取此文件，避免設定與排課競爭時沿用舊上限。調低上限不取消已排課程，已達或超過上限的時段不可新增／移入，仍可編輯原時段課程或取消。`GET /api/sessions` 一律回傳 `slotCapacity`，即使時段列表為空，行事曆仍能正確顯示容量。
 
 ## `users`
 
@@ -155,7 +161,7 @@ stateDiagram-v2
 重要規則：
 
 - `studentId` 不可等於 `coachId`。
-- 每個開始時段最多三組課程。
+- 每個開始時段預設最多 4 堂（可由 Admin 調整）課程。
 - 同一教練或學生在同時段只能有一堂課。
 - 建立預約只增加 `reserved` / `reservedUnits`，不減少 `remainingUnits`。
 - `completed` 才會同時減少 `remainingUnits`、`reservedUnits` 與儲值歸屬會員快取的 `totalRemaining`、`reserved`。上課會員仍記在 `studentId`。
@@ -191,7 +197,7 @@ stateDiagram-v2
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
 | `startAt` | Timestamp | 時段開始時間 |
-| `count` | number | 此時段目前課程組數，最大為 3 |
+| `count` | number | 此時段目前課程組數，受 settings/scheduling.slotCapacity 限制；調低上限時保留既有課程 |
 | `sessionIds` | string[] | 此時段包含的 session IDs |
 
 ### `coachSlotLocks`

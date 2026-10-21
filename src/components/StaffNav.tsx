@@ -12,6 +12,7 @@ export function StaffNav({ principal, pendingCount = 0 }: { principal: SessionPr
       { href: "/dashboard/members", label: "會員" },
       { href: "/dashboard/plans", label: "方案" },
       { href: "/dashboard/reports", label: "報表" },
+      { href: "/dashboard/settings", label: "設定" },
     ] : []),
     { href: "/member/account", label: "會員端" },
   ];

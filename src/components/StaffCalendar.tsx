@@ -14,6 +14,8 @@ import { CalendarStatusLegend } from "./CalendarStatusLegend";
 import { calendarDayTitleFormat, useCalendarSwipe } from "./calendarInteractions";
 import { sessionStatusColor } from "@/lib/domain/sessionPresentation";
 
+import { DEFAULT_SLOT_CAPACITY, slotCapacityState } from "@/lib/domain/scheduling";
+
 type UserOption = {
   id: string;
   displayName: string;
@@ -87,6 +89,7 @@ export function StaffCalendar() {
   const rangeRef = useRef({ start: new Date(), end: new Date() });
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [slots, setSlots] = useState<SlotAvailability[]>([]);
+  const [slotCapacity, setSlotCapacity] = useState(DEFAULT_SLOT_CAPACITY);
   const [visibleRange, setVisibleRange] = useState<{ start: Date; end: Date } | null>(null);
   const [students, setStudents] = useState<UserOption[]>([]);
   const [coaches, setCoaches] = useState<UserOption[]>([]);
@@ -119,6 +122,7 @@ export function StaffCalendar() {
     else {
       setSessions(body.sessions ?? []);
       setSlots(body.slots ?? []);
+      setSlotCapacity(body.slotCapacity ?? DEFAULT_SLOT_CAPACITY);
     }
   }, []);
 
@@ -178,7 +182,7 @@ export function StaffCalendar() {
         const start = new Date(cursor);
         start.setHours(hour, 0, 0, 0);
         const count = counts.get(start.getTime()) ?? 0;
-        const state = count >= 3 ? "full" : count === 2 ? "limited" : "available";
+        const state = slotCapacityState(count, slotCapacity);
         events.push({
           id: `availability-${start.getTime()}`,
           start,
@@ -190,7 +194,7 @@ export function StaffCalendar() {
       cursor.setDate(cursor.getDate() + 1);
     }
     return events;
-  }, [slots, visibleRange]);
+  }, [slots, visibleRange, slotCapacity]);
 
   function openCreate(start = new Date()) {
     setDraft({ studentId, coachId, planId, startLocal: localInput(start), frequency: "none", count: 1 });
@@ -278,8 +282,9 @@ export function StaffCalendar() {
       <section className="card calendar-card">
         <CalendarStatusLegend />
         <div className="slot-capacity-legend" aria-label="時段預約容量">
+          <span>同時段上限 {slotCapacity} 堂</span>
           <span><i className="slot-available" />可預約</span>
-          <span><i className="slot-limited" />剩 1 組</span>
+          <span><i className="slot-limited" />剩 1 堂</span>
           <span><i className="slot-full" />已額滿</span>
         </div>
         <div className="calendar-swipe-surface" {...swipeHandlers}>
