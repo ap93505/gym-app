@@ -1,10 +1,9 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firebase/admin";
 import { AppError, assert } from "@/lib/domain/errors";
-import { consumeReservedCredit, releaseCredit, reserveCredits } from "@/lib/domain/credits";
 import { generateOccurrences, type RecurrenceRule } from "@/lib/domain/recurrence";
 import type { IncompleteReason, Role, SessionPrincipal, SessionStatus } from "@/lib/domain/types";
-import { creditSummary } from "./users";
+import { accessibleBatches, batchOwnerId, sessionBatchRef, updateOwnerBalance } from "./creditBatches";
 import { CHECK_IN_BEFORE_MS, CHECK_IN_AFTER_MS, isCheckInOpen, selfCheckInAction } from "@/lib/domain/checkIn";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -57,23 +56,23 @@ function ensureCanManageCoach(principal: SessionPrincipal, coachId: string) {
   }
 }
 
-function usablePlanBatches(snapshot: FirebaseFirestore.QuerySnapshot, planId: string) {
+function usablePlanBatches(batches: FirebaseFirestore.DocumentSnapshot[], planId: string, releasedPath?: string) {
   const now = Date.now();
-  return snapshot.docs
+  return batches
     .filter((doc) => {
-      const data = doc.data();
+      const data = doc.data()!;
       const remaining = Number(data.remainingUnits ?? 0);
       const reserved = Number(data.reservedUnits ?? 0);
-      return data.planId === planId && remaining - reserved > 0 && data.expiresAt?.toMillis?.() > now;
+      return data.status !== "voided" && data.planId === planId && remaining - reserved + (doc.ref.path === releasedPath ? 1 : 0) > 0 && data.expiresAt?.toMillis?.() > now;
     })
-    .sort((a, b) => a.data().expiresAt.toMillis() - b.data().expiresAt.toMillis());
+    .sort((a, b) => a.data()!.expiresAt.toMillis() - b.data()!.expiresAt.toMillis() || a.ref.path.localeCompare(b.ref.path));
 }
 
-function allocateBatchIds(batches: FirebaseFirestore.QueryDocumentSnapshot[], count: number) {
+function allocateBatchPaths(batches: FirebaseFirestore.DocumentSnapshot[], count: number) {
   const result: string[] = [];
   batches.forEach((batch) => {
-    const available = Math.max(0, Number(batch.data().remainingUnits ?? 0) - Number(batch.data().reservedUnits ?? 0));
-    for (let index = 0; index < available && result.length < count; index += 1) result.push(batch.id);
+    const available = Math.max(0, Number(batch.data()!.remainingUnits ?? 0) - Number(batch.data()!.reservedUnits ?? 0));
+    for (let index = 0; index < available && result.length < count; index += 1) result.push(batch.ref.path);
   });
   return result;
 }
@@ -100,21 +99,20 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
     const coachRef = db.collection("users").doc(input.coachId);
     const studentSnapshot = await tx.get(studentRef);
     const coachSnapshot = await tx.get(coachRef);
-    const batchSnapshot = await tx.get(studentRef.collection("creditBatches"));
+    const batchSnapshot = await accessibleBatches(tx, studentSnapshot);
     if (!studentSnapshot.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
     if (!coachSnapshot.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
     assert((studentSnapshot.data()!.roles as Role[]).includes("student"), "指定帳號不是學生");
     assert((coachSnapshot.data()!.roles as Role[]).includes("coach"), "指定帳號不是教練");
-    const summary = creditSummary(studentSnapshot.data());
     const planBatches = usablePlanBatches(batchSnapshot, input.planId);
-    const batchIds = allocateBatchIds(planBatches, occurrences.length);
-    if (batchIds.length < occurrences.length) {
+    const batchPaths = allocateBatchPaths(planBatches, occurrences.length);
+    if (batchPaths.length < occurrences.length) {
       throw new AppError("此方案可預約堂數不足", 409, "INSUFFICIENT_PLAN_CREDITS", {
-        available: batchIds.length,
+        available: batchPaths.length,
         requested: occurrences.length,
       });
     }
-    const planName = String(planBatches[0]?.data().planName ?? planBatches[0]?.data().note?.replace(/^方案：/, "") ?? input.planId);
+    const planName = String(planBatches[0]?.data()!.planName ?? planBatches[0]?.data()!.note?.replace(/^方案：/, "") ?? input.planId);
 
     const refGroups = occurrences.map((start) => ({
       slot: db.collection("timeSlots").doc(slotId(start)),
@@ -158,7 +156,8 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
         coachName,
         planId: input.planId,
         planName,
-        creditBatchId: batchIds[index],
+        creditBatchId: db.doc(batchPaths[index]).id,
+        creditOwnerId: db.doc(batchPaths[index]).parent.parent!.id,
         startAt: Timestamp.fromDate(start),
         endAt: Timestamp.fromDate(end),
         status: "scheduled" satisfies SessionStatus,
@@ -175,15 +174,14 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
       tx.set(refs.coach, { sessionId: sessionRef.id, coachId: input.coachId, startAt: Timestamp.fromDate(start) });
       tx.set(refs.student, { sessionId: sessionRef.id, studentId: input.studentId, startAt: Timestamp.fromDate(start) });
     });
-    tx.update(studentRef, {
-      credits: reserveCredits(summary, occurrences.length),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
     const reservationCounts = new Map<string, number>();
-    batchIds.forEach((batchId) => reservationCounts.set(batchId, (reservationCounts.get(batchId) ?? 0) + 1));
+    batchPaths.forEach((path) => reservationCounts.set(path, (reservationCounts.get(path) ?? 0) + 1));
     planBatches.forEach((batch) => {
-      const quantity = reservationCounts.get(batch.id);
-      if (quantity) tx.update(batch.ref, { reservedUnits: Number(batch.data().reservedUnits ?? 0) + quantity });
+      const quantity = reservationCounts.get(batch.ref.path);
+      if (quantity) {
+        tx.update(batch.ref, { reservedUnits: Number(batch.data()!.reservedUnits ?? 0) + quantity, hasBeenReserved: true });
+        updateOwnerBalance(tx, batch, 0, quantity);
+      }
     });
     if (seriesRef) {
       tx.set(seriesRef, {
@@ -232,7 +230,7 @@ export async function updateSession(
     const studentChanged = data.studentId !== input.studentId;
     const coachChanged = data.coachId !== input.coachId;
     const planChanged = data.planId !== input.planId;
-    const creditChanged = studentChanged || planChanged;
+    const reselectCredit = studentChanged || planChanged;
     const oldStudentRef = db.collection("users").doc(data.studentId);
     const newStudentRef = db.collection("users").doc(input.studentId);
     const newCoachRef = db.collection("users").doc(input.coachId);
@@ -248,9 +246,9 @@ export async function updateSession(
     const newStudentLockRef = db.collection("studentSlotLocks").doc(lockId(input.studentId, input.startAt));
     const newCoachLock = timeChanged || coachChanged ? await tx.get(newCoachLockRef) : null;
     const newStudentLock = timeChanged || studentChanged ? await tx.get(newStudentLockRef) : null;
-    const oldBatchRef = oldStudentRef.collection("creditBatches").doc(data.creditBatchId);
-    const oldBatch = creditChanged ? await tx.get(oldBatchRef) : null;
-    const newBatchSnapshot = creditChanged ? await tx.get(newStudentRef.collection("creditBatches")) : null;
+    const oldBatchRef = sessionBatchRef(data);
+    const oldBatch = await tx.get(oldBatchRef);
+    const newBatchSnapshot = reselectCredit ? await accessibleBatches(tx, newStudent) : null;
 
     if (!oldStudent.exists || !newStudent.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
     if (!newCoach.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
@@ -261,12 +259,13 @@ export async function updateSession(
     }
     if (newCoachLock?.exists) throw new AppError("教練在新時段已有課程", 409, "COACH_CONFLICT");
     if (newStudentLock?.exists) throw new AppError("學生在新時段已有課程", 409, "STUDENT_CONFLICT");
-    if (creditChanged && !oldBatch?.exists) throw new AppError("找不到原預約方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
-    const newPlanBatches = newBatchSnapshot ? usablePlanBatches(newBatchSnapshot, input.planId) : [];
-    const newBatch = creditChanged ? newPlanBatches[0] : null;
-    if (creditChanged && !newBatch) throw new AppError("新方案沒有可預約堂數", 409, "INSUFFICIENT_PLAN_CREDITS");
+    if (!oldBatch.exists) throw new AppError("找不到原預約方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
+    const newPlanBatches = newBatchSnapshot ? usablePlanBatches(newBatchSnapshot, input.planId, oldBatchRef.path) : [];
+    const newBatch = reselectCredit ? (newPlanBatches.find((batch) => batch.ref.path === oldBatchRef.path) ?? newPlanBatches[0]) : oldBatch;
+    if (!newBatch) throw new AppError("新方案沒有可預約堂數", 409, "INSUFFICIENT_PLAN_CREDITS");
+    const creditChanged = oldBatchRef.path !== newBatch.ref.path;
     const planName = creditChanged
-      ? String(newBatch!.data().planName ?? newBatch!.data().note?.replace(/^方案：/, "") ?? input.planId)
+      ? String(newBatch!.data()!.planName ?? newBatch!.data()!.note?.replace(/^方案：/, "") ?? input.planId)
       : String(data.planName ?? input.planId);
 
     const now = Timestamp.now();
@@ -289,12 +288,13 @@ export async function updateSession(
       tx.set(newStudentLockRef, { sessionId, studentId: input.studentId, startAt: Timestamp.fromDate(input.startAt) });
     }
     if (creditChanged) {
-      tx.update(oldBatchRef, { reservedUnits: Math.max(0, Number(oldBatch!.data()?.reservedUnits ?? 0) - 1) });
-      tx.update(newBatch!.ref, { reservedUnits: Number(newBatch!.data().reservedUnits ?? 0) + 1 });
-    }
-    if (studentChanged) {
-      tx.update(oldStudentRef, { credits: releaseCredit(creditSummary(oldStudent.data())), updatedAt: now });
-      tx.update(newStudentRef, { credits: reserveCredits(creditSummary(newStudent.data()), 1), updatedAt: now });
+      assert(Number(oldBatch.data()?.reservedUnits ?? 0) > 0, "方案預約堂數狀態不一致", 409, "CREDIT_STATE_MISMATCH");
+      tx.update(oldBatchRef, { reservedUnits: Number(oldBatch.data()!.reservedUnits) - 1, hasBeenReserved: true });
+      tx.update(newBatch.ref, { reservedUnits: Number(newBatch.data()!.reservedUnits ?? 0) + 1, hasBeenReserved: true });
+      updateOwnerBalance(tx, oldBatch, 0, -1);
+      updateOwnerBalance(tx, newBatch, 0, 1);
+    } else {
+      tx.update(oldBatchRef, { hasBeenReserved: true });
     }
     tx.update(sessionRef, {
       studentId: input.studentId,
@@ -303,7 +303,8 @@ export async function updateSession(
       coachName: userName(newCoach.data()!),
       planId: input.planId,
       planName,
-      creditBatchId: creditChanged ? newBatch!.id : data.creditBatchId,
+      creditBatchId: newBatch.id,
+      creditOwnerId: batchOwnerId(newBatch),
       startAt: Timestamp.fromDate(input.startAt),
       endAt: Timestamp.fromDate(new Date(input.startAt.getTime() + HOUR_MS)),
       updatedAt: now,
@@ -450,20 +451,19 @@ export async function confirmOutcome(
 
     const studentRef = db.collection("users").doc(data.studentId);
     const student = await tx.get(studentRef);
-    const batchRef = studentRef.collection("creditBatches").doc(data.creditBatchId);
+    const batchRef = sessionBatchRef(data);
     const batch = await tx.get(batchRef);
     if (!student.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
     if (!batch.exists) throw new AppError("找不到課程對應的方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
-    const summary = creditSummary(student.data());
     assert(Number(batch.data()?.reservedUnits ?? 0) > 0, "方案預約堂數狀態不一致", 409, "CREDIT_STATE_MISMATCH");
     if (outcome === "completed") assert(Number(batch.data()?.remainingUnits ?? 0) > 0, "方案剩餘堂數不足", 409, "CREDIT_STATE_MISMATCH");
 
-    const nextSummary = outcome === "completed" ? consumeReservedCredit(summary) : releaseCredit(summary);
     const now = Timestamp.now();
-    tx.update(studentRef, { credits: nextSummary, updatedAt: now });
+    updateOwnerBalance(tx, batch, outcome === "completed" ? -1 : 0, -1);
     tx.update(batchRef, {
       remainingUnits: outcome === "completed" ? Number(batch.data()!.remainingUnits) - 1 : Number(batch.data()!.remainingUnits),
       reservedUnits: Number(batch.data()!.reservedUnits ?? 0) - 1,
+      hasBeenReserved: true,
     });
     tx.update(sessionRef, {
       status: outcome,
@@ -479,6 +479,7 @@ export async function confirmOutcome(
         type: "consume",
         quantity: -1,
         batchId: batch.id,
+        creditOwnerId: batchOwnerId(batch),
         planId: data.planId,
         planName: data.planName,
         sessionId,
@@ -522,13 +523,14 @@ export async function cancelSession(principal: SessionPrincipal, sessionId: stri
     const slotRef = db.collection("timeSlots").doc(slotId(data.startAt.toDate()));
     const student = await tx.get(studentRef);
     const slot = await tx.get(slotRef);
-    const batchRef = studentRef.collection("creditBatches").doc(data.creditBatchId);
+    const batchRef = sessionBatchRef(data);
     const batch = await tx.get(batchRef);
     if (!student.exists) throw new AppError("找不到學生", 404, "STUDENT_NOT_FOUND");
     if (!batch.exists) throw new AppError("找不到課程對應的方案批次", 409, "CREDIT_BATCH_NOT_FOUND");
     const now = Timestamp.now();
-    tx.update(studentRef, { credits: releaseCredit(creditSummary(student.data())), updatedAt: now });
-    tx.update(batchRef, { reservedUnits: Math.max(0, Number(batch.data()?.reservedUnits ?? 0) - 1) });
+    assert(Number(batch.data()?.reservedUnits ?? 0) > 0, "方案預約堂數狀態不一致", 409, "CREDIT_STATE_MISMATCH");
+    updateOwnerBalance(tx, batch, 0, -1);
+    tx.update(batchRef, { reservedUnits: Number(batch.data()!.reservedUnits) - 1, hasBeenReserved: true });
     tx.update(sessionRef, {
       status: "cancelled",
       cancelledAt: now,

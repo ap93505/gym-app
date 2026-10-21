@@ -12,6 +12,8 @@ export type CreditPlanSummary = {
   totalRemaining: number;
   reserved: number;
   available: number;
+  personalRemaining: number;
+  sharedRemaining: number;
 };
 
 export type AppUser = {

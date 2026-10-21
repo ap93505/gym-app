@@ -1,8 +1,8 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firebase/admin";
 import { AppError, assert } from "@/lib/domain/errors";
-import { availableCredits } from "@/lib/domain/credits";
-import type { CreditPlanSummary, CreditSummary, Role } from "@/lib/domain/types";
+import { userCredits } from "./creditBatches";
+import type { CreditSummary, Role } from "@/lib/domain/types";
 
 export function creditSummary(data: FirebaseFirestore.DocumentData | undefined): CreditSummary {
   return {
@@ -11,39 +11,11 @@ export function creditSummary(data: FirebaseFirestore.DocumentData | undefined):
   };
 }
 
-async function creditPlanSummaries(userRef: FirebaseFirestore.DocumentReference): Promise<CreditPlanSummary[]> {
-  const snapshot = await userRef.collection("creditBatches").get();
-  const now = Date.now();
-  const plans = new Map<string, CreditPlanSummary>();
-  snapshot.docs.forEach((doc) => {
-    const data = doc.data();
-    const planId = String(data.planId ?? "");
-    const expiresAt = data.expiresAt?.toMillis?.() ?? 0;
-    if (!planId || expiresAt <= now) return;
-    const remaining = Number(data.remainingUnits ?? 0);
-    const reserved = Number(data.reservedUnits ?? 0);
-    if (remaining <= 0 && reserved <= 0) return;
-    const current = plans.get(planId) ?? {
-      planId,
-      planName: data.planName || data.note?.replace(/^方案：/, "") || planId,
-      totalRemaining: 0,
-      reserved: 0,
-      available: 0,
-    };
-    current.totalRemaining += remaining;
-    current.reserved += reserved;
-    current.available += Math.max(0, remaining - reserved);
-    plans.set(planId, current);
-  });
-  return [...plans.values()].sort((a, b) => a.planName.localeCompare(b.planName, "zh-TW"));
-}
-
 export async function getUser(userId: string) {
   const snapshot = await db.collection("users").doc(userId).get();
   if (!snapshot.exists) throw new AppError("找不到會員", 404, "USER_NOT_FOUND");
   const data = snapshot.data()!;
-  const credits = creditSummary(data);
-  const plans = await creditPlanSummaries(snapshot.ref);
+  const credits = await userCredits(snapshot.ref);
   return {
     id: snapshot.id,
     lineUserId: data.lineUserId,
@@ -54,7 +26,7 @@ export async function getUser(userId: string) {
     email: data.email,
     roles: (data.roles ?? ["student"]) as Role[],
     status: data.status ?? "active",
-    credits: { ...credits, available: availableCredits(credits), plans },
+    credits,
   };
 }
 
@@ -65,8 +37,7 @@ export async function listUsers(role?: Role) {
   const snapshot = await query.get();
   const users = await Promise.all(snapshot.docs.map(async (doc) => {
     const data = doc.data();
-    const credits = creditSummary(data);
-    const plans = await creditPlanSummaries(doc.ref);
+    const credits = await userCredits(doc.ref);
     return {
       id: doc.id,
       displayName: data.displayName ?? "會員",
@@ -74,7 +45,7 @@ export async function listUsers(role?: Role) {
       nickname: data.nickname ?? "",
       roles: data.roles ?? ["student"],
       status: data.status ?? "active",
-      credits: { ...credits, available: availableCredits(credits), plans },
+      credits,
     };
   }));
   return users.sort((a, b) => (a.realName || a.nickname || a.displayName).localeCompare(b.realName || b.nickname || b.displayName, "zh-Hant"));
@@ -112,7 +83,7 @@ function tenYearsFrom(date: Date) {
   return expiry;
 }
 
-export async function grantCredits(actorId: string, userId: string, quantity: number, planId?: string, planName?: string, note?: string) {
+export async function grantCredits(actorId: string, userId: string, quantity: number, planId?: string, planName?: string, note?: string, sharedMemberIds: string[] = []) {
   assert(Number.isInteger(quantity) && quantity > 0, "加值堂數必須是正整數");
   const now = new Date();
   const expiresAt = tenYearsFrom(now);
@@ -120,11 +91,18 @@ export async function grantCredits(actorId: string, userId: string, quantity: nu
     const userRef = db.collection("users").doc(userId);
     const user = await tx.get(userRef);
     if (!user.exists) throw new AppError("找不到會員", 404, "USER_NOT_FOUND");
+    const memberIds = [...new Set([userId, ...sharedMemberIds])];
+    assert(memberIds.length <= 20, "每筆儲值最多支援 20 位會員");
+    const members = await tx.getAll(...memberIds.map((id) => db.collection("users").doc(id)));
+    assert(members.every((member) => member.exists && member.data()?.roles?.includes("student") && member.data()?.status !== "disabled"), "請選擇有效的學生會員");
     const summary = creditSummary(user.data());
     const batchRef = userRef.collection("creditBatches").doc();
     const ledgerRef = db.collection("creditLedgers").doc();
     tx.set(batchRef, {
       originalUnits: quantity,
+      memberIds,
+      status: "active",
+      hasBeenReserved: false,
       remainingUnits: quantity,
       reservedUnits: 0,
       planId: planId ?? null,
@@ -133,6 +111,9 @@ export async function grantCredits(actorId: string, userId: string, quantity: nu
       grantedAt: Timestamp.fromDate(now),
       expiresAt: Timestamp.fromDate(expiresAt),
       note: note ?? "",
+    });
+    members.filter((member) => member.id !== userId).forEach((member) => {
+      tx.update(member.ref, { sharedCreditBatchPaths: FieldValue.arrayUnion(batchRef.path) });
     });
     tx.set(ledgerRef, {
       userId,
@@ -153,18 +134,18 @@ export async function grantCredits(actorId: string, userId: string, quantity: nu
       action: "credits.granted",
       actorId,
       targetId: userId,
-      metadata: { quantity, planId: planId ?? null, expiresAt },
+      metadata: { quantity, planId: planId ?? null, expiresAt, memberIds, batchId: batchRef.id },
       createdAt: FieldValue.serverTimestamp(),
     });
   });
   return { expiresAt };
 }
 
-export async function grantPlanCredits(actorId: string, userId: string, planId: string) {
+export async function grantPlanCredits(actorId: string, userId: string, planId: string, sharedMemberIds: string[] = []) {
   const plan = await db.collection("plans").doc(planId).get();
   if (!plan.exists || plan.data()?.active !== true) throw new AppError("找不到可使用的課堂方案", 404, "PLAN_NOT_FOUND");
   const quantity = Number(plan.data()?.sessions ?? 0);
   assert(Number.isInteger(quantity) && quantity > 0, "方案堂數設定錯誤");
   const planName = String(plan.data()?.name ?? planId);
-  return grantCredits(actorId, userId, quantity, planId, planName, `方案：${planName}`);
+  return grantCredits(actorId, userId, quantity, planId, planName, `方案：${planName}`, sharedMemberIds);
 }

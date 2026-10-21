@@ -8,7 +8,7 @@ type Profile = {
   nickname: string;
   displayName: string;
   pictureUrl?: string;
-  credits: { totalRemaining: number; reserved: number; available: number; plans: Array<{ planId: string; planName: string; totalRemaining: number; reserved: number; available: number }> };
+  credits: { personalRemaining: number; sharedRemaining: number; totalRemaining: number; reserved: number; available: number; plans: Array<{ planId: string; planName: string; personalRemaining: number; sharedRemaining: number; totalRemaining: number; reserved: number; available: number }> };
 };
 
 export function ProfileCardEditor({ profile }: { profile: Profile }) {
@@ -44,10 +44,10 @@ export function ProfileCardEditor({ profile }: { profile: Profile }) {
   return (
     <>
       <div className="grid">
-        <section className="card span-4"><p className="muted">總剩餘堂數</p><div className="metric">{current.credits.totalRemaining}</div><p className="muted">包含已預約但尚未完成的課程</p></section>
-        <section className="card span-4"><p className="muted">已預約</p><div className="metric">{current.credits.reserved}</div><p className="muted">完成後才會正式扣堂</p></section>
+        <section className="card span-4"><p className="muted">總剩餘堂數</p><div className="metric">{current.credits.totalRemaining}</div><p className="muted">個人 {current.credits.personalRemaining}／共用 {current.credits.sharedRemaining}（包含已預約）</p></section>
+        <section className="card span-4"><p className="muted">已預約</p><div className="metric">{current.credits.reserved}</div><p className="muted">包含共用會員占用的堂數，完成後才扣堂</p></section>
         <section className="card span-4"><p className="muted">尚可預約</p><div className="metric">{current.credits.available}</div><p className="muted">目前仍可安排的課程</p></section>
-        <section className="card span-12 stack"><h3>我的方案堂數</h3>{current.credits.plans.length ? <div className="plan-credit-list">{current.credits.plans.map((plan) => <div className="plan-credit-row" key={plan.planId}><span className="badge">{plan.planName}</span><span className="badge credit-total">剩餘 {plan.totalRemaining}</span><span className="badge credit-reserved">已預約 {plan.reserved}</span><span className="badge credit-available">可預約 {plan.available}</span></div>)}</div> : <p className="muted">目前沒有可使用的課堂方案。</p>}</section>
+        <section className="card span-12 stack"><h3>我的方案堂數</h3><p className="muted">共用餘額與其他會員共用，並非每人各有一份。其他會員使用後，重新整理即可看到最新餘額。</p>{current.credits.plans.length ? <div className="plan-credit-list">{current.credits.plans.map((plan) => <div className="plan-credit-row" key={plan.planId}><span className="badge">{plan.planName}</span><span className="badge gray">個人 {plan.personalRemaining}／共用 {plan.sharedRemaining}</span><span className="badge credit-total">剩餘 {plan.totalRemaining}</span><span className="badge credit-reserved">已預約 {plan.reserved}</span><span className="badge credit-available">可預約 {plan.available}</span></div>)}</div> : <p className="muted">目前沒有可使用的課堂方案。</p>}</section>
         <section className="card span-8 stack">
           <div className="page-heading" style={{ marginBottom: 0 }}>
             <div><h3>個人資料</h3><p className="muted">LINE 顯示名稱：{current.displayName}</p></div>

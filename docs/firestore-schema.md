@@ -2,6 +2,8 @@
 
 本文件描述 `ray-app` 目前實際使用的 Firestore 資料模型。Firestore 並非關聯式資料庫，以下所稱「表」實際上是 collection；關聯不會由資料庫外鍵強制，而是由文件 ID、關聯欄位與 Firestore transaction 維護。
 
+共用方案與作廢的操作、舊資料限制及驗收步驟，見 [shared-credits-testing.md](shared-credits-testing.md)。
+
 ## 整體關聯
 
 ```mermaid
@@ -52,18 +54,21 @@ erDiagram
 | `email` | string? | LINE Login 提供的 Email |
 | `roles` | string[] | `admin`、`coach`、`student`，可複選 |
 | `status` | string | 目前使用 `active` 或 `disabled` |
-| `credits.totalRemaining` | number | 所有有效批次尚未正式扣除的堂數總和，包含已預約堂數 |
-| `credits.reserved` | number | 已被課程預約鎖定、尚未完成或釋放的堂數 |
+| `credits.totalRemaining` | number | 此帳號名下批次的剩餘快取，包含共用批次；不代表本人全部可用餘額 |
+| `credits.reserved` | number | 此帳號名下批次的占用快取，包含其他共用會員預約 |
+| `sharedCreditBatchPaths` | string[]? | 此會員加入的其他帳號名下批次完整路徑，僅用於查找；仍需驗證批次的 `memberIds` |
 | `createdAt` | Timestamp | 首次 LINE 登入時間 |
 | `updatedAt` | Timestamp | 最近更新時間 |
 
-計算欄位：`available = totalRemaining - reserved`。此值由 API 計算，不存入文件。
+API 的 `credits` 由本人批次及有權使用的共用批次即時計算，排除過期、作廢批次並按完整路徑去重。包含 `totalRemaining`、`reserved`、`available`、`personalRemaining`、`sharedRemaining` 與依方案彙總的 `plans`。不將同一份餘額複製到每位共用會員。
 
 ### `creditBatches` 子集合
 
 路徑：`users/{userId}/creditBatches/{batchId}`
 
 每次替會員儲值一個方案，都建立一個獨立批次。預約同一方案時，優先使用最早到期且仍有可預約堂數的批次。
+
+共用時保留原路徑與原始歸屬會員；參與者都從同一筆批次扣堂。舊批次沒有 `memberIds` 時視為僅原始歸屬會員可用，不需要搬移舊資料。
 
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
@@ -76,8 +81,15 @@ erDiagram
 | `grantedAt` | Timestamp | 儲值時間 |
 | `expiresAt` | Timestamp | 到期時間，目前為儲值日起十年 |
 | `note` | string | 儲值備註 |
+| `memberIds` | string[]? | 可使用的會員，包含原始歸屬會員；最多 20 人 |
+| `status` | string? | `active` 或 `voided`；舊資料未設定視為 active |
+| `hasBeenReserved` | boolean? | 新儲值為 false，首次預約或處理既有預約後永遠為 true；舊資料缺少此值時禁止作廢 |
+| `voidedAt` / `voidedBy` | Timestamp? / string? | 作廢時間及操作者 |
+| `voidReason` | string? | 作廢原因 |
 
 批次可預約堂數：`remainingUnits - reservedUnits`。
+
+作廢需同時滿足 `hasBeenReserved === false`、`remainingUnits === originalUnits`、`reservedUnits === 0` 且尚未作廢。作廢將 remainingUnits 歸零、標記狀態，寫入反向流水與 audit log，保留原始堂數。預約、改課、完成、取消、作廢都交易讀寫同一筆批次，避免競爭時超用或重複扣除。
 
 ## `plans`
 
@@ -107,7 +119,8 @@ erDiagram
 | `coachName` | string | 建立／編輯課程時的教練名稱快照 |
 | `planId` | string | 此堂課使用的方案 |
 | `planName` | string | 此堂課的方案名稱快照 |
-| `creditBatchId` | string | 對應 `users/{studentId}/creditBatches/{creditBatchId}` |
+| `creditBatchId` | string | 對應 `users/{creditOwnerId}/creditBatches/{creditBatchId}` |
+| `creditOwnerId` | string? | 儲值原始歸屬會員；舊預約未設定時回退至 `studentId` |
 | `startAt` | Timestamp | 課程開始時間 |
 | `endAt` | Timestamp | 課程結束時間，目前固定為開始後一小時 |
 | `status` | string | 課程狀態，見下方狀態流程 |
@@ -145,7 +158,7 @@ stateDiagram-v2
 - 每個開始時段最多三組課程。
 - 同一教練或學生在同時段只能有一堂課。
 - 建立預約只增加 `reserved` / `reservedUnits`，不減少 `remainingUnits`。
-- `completed` 才會同時減少 `remainingUnits`、`reservedUnits` 與使用者 `totalRemaining`、`reserved`。
+- `completed` 才會同時減少 `remainingUnits`、`reservedUnits` 與儲值歸屬會員快取的 `totalRemaining`、`reserved`。上課會員仍記在 `studentId`。
 - `not_completed` 或 `cancelled` 只釋放預約，不正式扣堂。
 
 ## `recurrenceSeries`
@@ -207,14 +220,15 @@ stateDiagram-v2
 
 路徑：`creditLedgers/{ledgerId}`
 
-堂數流水採 append-only。現在會寫入 `grant` 與 `consume`；取消或未完成屬於釋放預約，沒有額外流水。
+堂數流水採 append-only。會寫入 `grant`、`consume` 與 `void`；取消或未完成屬於釋放預約，沒有額外流水。
 
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
 | `userId` | string | 會員 user ID |
-| `type` | string | `grant` 或 `consume` |
-| `quantity` | number | 儲值為正數；消耗固定為 `-1` |
-| `batchId` | string | 對應會員的 `creditBatches/{batchId}` |
+| `type` | string | `grant`、`consume` 或 `void` |
+| `quantity` | number | 儲值為正數；消耗固定為 `-1`；作廢為該筆剩餘堂數的負數 |
+| `batchId` | string | 對應儲值原始歸屬會員的 `creditBatches/{batchId}` |
+| `creditOwnerId` | string? | 新的消耗／作廢流水會記錄批次歸屬；consume 的 userId 仍是實際上課人 |
 | `planId` | string | 方案 ID |
 | `planName` | string | 方案名稱快照 |
 | `sessionId` | string? | `consume` 時對應課程 ID |
@@ -238,6 +252,7 @@ stateDiagram-v2
 
 - `user.roles_updated`
 - `credits.granted`
+- `credits.member_added`、`credits.voided`
 - `plan.created`、`plan.updated`、`plans.reordered`
 - `sessions.created`、`session.updated`
 - `session.checked_in`、`session.checkin_backfilled`
@@ -255,7 +270,7 @@ Firestore 沒有 join，因此以下名稱會保存快照：
 
 修改會員名稱或方案名稱不會回寫歷史課程與流水。這能保留報表當時的顯示內容，但也代表歷史名稱可能與目前主檔不同。
 
-使用者文件中的 `credits` 是快速查詢用的彙總；各方案精確來源是 `creditBatches`。所有預約、完成、未完成與取消操作必須透過既有 transaction service 更新兩者，不應直接在 Console 單獨修改其中一邊。
+使用者文件中的 `credits` 保留為其名下批次的相容快取；API 顯示餘額以有權使用的 `creditBatches` 為準。所有預約、完成、未完成、取消與作廢操作必須透過 transaction service 更新批次及原始歸屬會員快取，不應直接在 Console 單獨修改其中一邊。
 
 ## 查詢與 Index
 
@@ -295,4 +310,4 @@ Firestore 沒有 join，因此以下名稱會保存快照：
 - `creditLedgers`
 - 所有 `users/{userId}/creditBatches`
 
-並將每位會員的 `credits` 歸零。此腳本會保留 `users`、`plans` 與既有 `auditLogs`，並新增一筆 maintenance audit log。這是破壞性操作，只應對確認過的 GCP project / Firestore database 執行。
+並將每位會員的 `credits` 歸零、移除 `sharedCreditBatchPaths`。此腳本會保留 `users`、`plans` 與既有 `auditLogs`，並新增一筆 maintenance audit log。這是破壞性操作，只應對確認過的 GCP project / Firestore database 執行。

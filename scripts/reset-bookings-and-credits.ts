@@ -31,6 +31,7 @@ async function main() {
     await db.recursiveDelete(batches);
     await user.ref.update({
       credits: { totalRemaining: 0, reserved: 0 },
+      sharedCreditBatchPaths: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
   }
