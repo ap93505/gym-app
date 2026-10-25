@@ -8,3 +8,4 @@ coverage
 npm-debug.log*
 dev-server*.log
 .DS_Store
+/backups/

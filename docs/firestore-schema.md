@@ -306,6 +306,22 @@ Firestore 沒有 join，因此以下名稱會保存快照：
 
 ## 清除腳本
 
+### 備份後以單一交易重設（包含課程相關稽核紀錄）
+
+`scripts/reset-course-data.ts` 預設只預覽，必須明確指定與環境設定一致的專案與資料庫：
+
+```powershell
+node --import tsx scripts/reset-course-data.ts --project ray-gym --database '(default)'
+# 確認目標後，加入 --apply 才會寫入：
+node --import tsx scripts/reset-course-data.ts --project ray-gym --database '(default)' --apply
+```
+
+保留帳號資料、角色、方案、系統設定，以及與課程無關的稽核紀錄；清除下列課程集合、所有個人／共用堂數批次與課程相關稽核紀錄，將帳號堂數歸零並新增一筆重設紀錄。執行前會將讀取的資料保存到 Git 忽略的 `backups/`，採 `ray-firestore-tagged-v1` 格式保留 Timestamp 等欄位型別；這是本地復原資料，不是 GCP 原生匯出格式，復原需依型別標記解碼後寫回。
+
+請於無人操作時執行。備份後若資料發生變動，交易會中止；寫入超過 500 筆或發現非預期的子集合，也會在刪除前停止。完成後會驗證課程已清空、帳號堂數為零、帳號其他資料與方案／設定未變。備份包含會員資料，請妥善保管。
+
+### 原有清除指令
+
 `npm run data:reset-bookings-credits` 會刪除：
 
 - `sessions`
