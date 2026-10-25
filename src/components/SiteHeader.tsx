@@ -5,8 +5,9 @@ import { ThemeSwitcher } from "./ThemeSwitcher";
 export function SiteHeader({ navigation }: { navigation?: React.ReactNode }) {
   return (
     <header className="site-header">
-      <Link className="brand" href="/" aria-label="RAY Fitness 首頁">
-        <Image className="brand-logo" src="/logo.png" alt="RAY Fitness 品牌標誌" width={1179} height={989} sizes="72px" priority />
+      <Link className="brand" href="/" aria-label="JUZ969fitness 首頁">
+        <Image className="brand-logo" src="/logo.png" alt="" width={1179} height={989} sizes="(max-width: 420px) 32px, 36px" priority />
+        <span className="brand-name">JUZ969fitness</span>
       </Link>
       <div className="staff-nav-row">
         {navigation ?? (
