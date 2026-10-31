@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
-import { CooperatingCoachesEditor } from "./CooperatingCoachesEditor";
+import { DEFAULT_COACH_ID } from "@/lib/domain/cooperatingCoaches";
+
+type Coach = { id: string; displayName: string; realName: string; nickname: string };
 
 type Profile = {
   id: string;
@@ -17,32 +19,61 @@ type Profile = {
 
 export function ProfileCardEditor({ profile }: { profile: Profile }) {
   const [current, setCurrent] = useState(profile);
-  const [draft, setDraft] = useState({ realName: profile.realName, nickname: profile.nickname });
+  const [draft, setDraft] = useState({ realName: profile.realName, nickname: profile.nickname, cooperatingCoachIds: profile.cooperatingCoachIds });
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [coachesLoaded, setCoachesLoaded] = useState(false);
+  const [coachError, setCoachError] = useState("");
+  const isStudent = current.roles.includes("student");
+
+  useEffect(() => {
+    if (!isStudent) return;
+    let active = true;
+    void fetch("/api/coaches", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error("載入教練失敗");
+      const body = await response.json();
+      if (active) { setCoaches(body.coaches); setCoachesLoaded(true); setCoachError(""); }
+    }).catch(() => { if (active) { setCoachesLoaded(false); setCoachError("載入教練失敗，請關閉編輯視窗後重試，或重新整理頁面。"); } });
+    return () => { active = false; };
+  }, [isStudent, open]);
+
+  function coachName(id: string) {
+    const coach = coaches.find((item) => item.id === id);
+    return coach ? coach.realName || coach.nickname || coach.displayName : `${id === DEFAULT_COACH_ID ? "Ray" : "原配合教練"}${coachesLoaded ? "（已停用或不具教練資格）" : ""}`;
+  }
+  const unavailable = draft.cooperatingCoachIds.filter((id) => !coaches.some((coach) => coach.id === id));
+  const validCoaches = !isStudent || (coachesLoaded && draft.cooperatingCoachIds.length >= 1 && draft.cooperatingCoachIds.length <= 50 && unavailable.length === 0);
 
   function edit() {
-    setDraft({ realName: current.realName, nickname: current.nickname });
+    setDraft({ realName: current.realName, nickname: current.nickname, cooperatingCoachIds: [...current.cooperatingCoachIds] });
     setMessage("");
+    setCoachError("");
+    setCoachesLoaded(false);
     setOpen(true);
   }
 
+  function close() { if (!saving) setOpen(false); }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (saving || !validCoaches) return;
     setSaving(true);
     setMessage("");
-    const response = await fetch("/api/me", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    const body = await response.json();
-    if (response.ok) {
-      setCurrent({ ...current, ...draft });
-      setOpen(false);
-    } else setMessage(body.error?.message ?? "更新失敗");
-    setSaving(false);
+    try {
+      const response = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ realName: draft.realName, nickname: draft.nickname, ...(isStudent ? { cooperatingCoachIds: draft.cooperatingCoachIds } : {}) }),
+      });
+      const body = await response.json();
+      if (response.ok) {
+        setCurrent((value) => ({ ...value, ...body.profile }));
+        setOpen(false);
+      } else setMessage(body.error?.message ?? "更新失敗");
+    } catch { setMessage("連線失敗，請重試儲存。"); }
+    finally { setSaving(false); }
   }
 
   return (
@@ -58,15 +89,25 @@ export function ProfileCardEditor({ profile }: { profile: Profile }) {
             <button className="button secondary small" onClick={edit}>編輯</button>
           </div>
           <div className="form-grid"><div><span className="muted">本名</span><p>{current.realName || "尚未填寫"}</p></div><div><span className="muted">綽號</span><p>{current.nickname || "尚未填寫"}</p></div></div>
+          {isStudent && <div className="field"><span className="muted">配合教練</span><div className="actions">{current.cooperatingCoachIds.map((id) => <span className="badge gray" key={id}>{coachName(id)}</span>)}</div>{coachError && !open && <p className="notice error">{coachError}</p>}</div>}
         </section>
       </div>
-      {current.roles.includes("student") && <section className="card stack"><h3>配合教練</h3><CooperatingCoachesEditor userId={current.id} coachIds={current.cooperatingCoachIds} onSaved={(ids) => setCurrent((value) => ({ ...value, cooperatingCoachIds: ids }))} /></section>}
-      <Modal open={open} title="編輯個人資料" onClose={() => setOpen(false)}>
+      <Modal open={open} title="編輯個人資料" onClose={close}>
         <form className="stack" onSubmit={save}>
-          <div className="field"><label htmlFor="realName">本名</label><input id="realName" className="input" value={draft.realName} onChange={(event) => setDraft({ ...draft, realName: event.target.value })} required /></div>
-          <div className="field"><label htmlFor="nickname">綽號</label><input id="nickname" className="input" value={draft.nickname} onChange={(event) => setDraft({ ...draft, nickname: event.target.value })} required /></div>
+          <div className="field"><label htmlFor="realName">本名</label><input id="realName" className="input" value={draft.realName} onChange={(event) => setDraft({ ...draft, realName: event.target.value })} maxLength={50} disabled={saving} required /></div>
+          <div className="field"><label htmlFor="nickname">綽號</label><input id="nickname" className="input" value={draft.nickname} onChange={(event) => setDraft({ ...draft, nickname: event.target.value })} maxLength={50} disabled={saving} required /></div>
+          {isStudent && <div className="field" role="group" aria-labelledby="profile-coaches-label">
+            <span id="profile-coaches-label">配合教練</span>
+            <p className="muted">可選擇多位，至少保留一位。移除教練不會取消已安排的課程。</p>
+            {coachesLoaded ? <div className="stack">{[...coaches.map((coach) => coach.id), ...unavailable].map((id) => <label key={id}>
+              <input type="checkbox" checked={draft.cooperatingCoachIds.includes(id)} disabled={saving} onChange={(event) => setDraft({ ...draft, cooperatingCoachIds: event.target.checked ? [...draft.cooperatingCoachIds, id] : draft.cooperatingCoachIds.filter((item) => item !== id) })} /> {coachName(id)}
+            </label>)}</div> : !coachError && <p className="muted">載入教練中…</p>}
+            {coachesLoaded && !coaches.length && <p className="notice error">目前沒有有效教練，請聯絡管理員。</p>}
+            {coachesLoaded && !draft.cooperatingCoachIds.length && <p className="notice error">請至少選擇一位配合教練。</p>}
+            {coachError && <p className="notice error">{coachError}</p>}
+          </div>}
           {message && <div className="notice error">{message}</div>}
-          <div className="form-actions"><button className="button" disabled={saving}>{saving ? "儲存中…" : "儲存"}</button><button type="button" className="button secondary" onClick={() => setOpen(false)}>取消</button></div>
+          <div className="form-actions"><button className="button" disabled={saving || !validCoaches}>{saving ? "儲存中…" : "儲存"}</button><button type="button" className="button secondary" disabled={saving} onClick={close}>取消</button></div>
         </form>
       </Modal>
     </>

@@ -140,3 +140,47 @@ test("配合關係在排課交易提交前被移除，重試會拒絕排課而�
   assert.equal([...memory.rows.keys()].some((p) => p.startsWith("sessions/")), false);
   assert.deepEqual(memory.rows.get("users/A")?.credits, { totalRemaining: 10, reserved: 0 });
 });
+
+test("個人資料一次更新本名、綽號及配合教練，回傳正規化結果並保留教練異動紀錄", async () => {
+  const [users] = await services;
+  const result = await users.updateOwnProfile("A", " 王小明 ", " 小明 ", ["coach", DEFAULT_COACH_ID, "coach"]);
+  assert.deepEqual(result, { realName: "王小明", nickname: "小明", cooperatingCoachIds: ["coach", DEFAULT_COACH_ID] });
+  const updated = await users.getUser("A");
+  assert.equal(updated.realName, "王小明");
+  assert.equal(updated.nickname, "小明");
+  assert.deepEqual(updated.cooperatingCoachIds, ["coach", DEFAULT_COACH_ID]);
+  assert.deepEqual(updated.roles, ["student"]);
+  const audit = [...memory.rows.values()].find((row) => row.action === "user.cooperating_coaches_updated");
+  assert.equal(audit?.actorId, "A");
+  assert.equal(audit?.targetId, "A");
+  assert.deepEqual(audit?.metadata, { before: [DEFAULT_COACH_ID], after: ["coach", DEFAULT_COACH_ID] });
+});
+
+test("個人資料任一欄位驗證失敗皆不寫入，不能只更新名字或清空配合教練", async () => {
+  const [users] = await services;
+  memory.seed("users/A", { ...memory.rows.get("users/A")!, realName: "原本名", nickname: "原綽號", cooperatingCoachIds: [DEFAULT_COACH_ID] });
+  memory.seed("users/disabled", { roles: ["coach"], status: "disabled" });
+  const before = structuredClone(memory.rows.get("users/A"));
+  for (const ids of [[], ["missing"], ["B"], ["disabled"]]) {
+    await assert.rejects(users.updateOwnProfile("A", "新本名", "新綽號", ids));
+    assert.deepEqual(memory.rows.get("users/A"), before);
+  }
+  await assert.rejects(users.updateOwnProfile("A", " ", "新綽號", ["coach"]));
+  await assert.rejects(users.updateOwnProfile("A", "新本名", " ", ["coach"]));
+  await assert.rejects(users.updateOwnProfile("A", "字".repeat(51), "新綽號", ["coach"]));
+  assert.deepEqual(memory.rows.get("users/A"), before);
+  assert.equal([...memory.rows.keys()].some((path) => path.startsWith("auditLogs/")), false);
+});
+
+test("省略配合教練仍可更新名字並保留原設定，非學員及停用帳號不可繞過資格檢查", async () => {
+  const [users, coaches] = await services;
+  await coaches.updateCooperatingCoaches(student, "A", ["coach"]);
+  await users.updateOwnProfile("A", "本名", "綽號");
+  assert.deepEqual((await users.getUser("A")).cooperatingCoachIds, ["coach"]);
+  await users.updateOwnProfile("coach", "教練本名", "教練綽號");
+  await assert.rejects(users.updateOwnProfile("coach", "不應更新", "不應更新", [DEFAULT_COACH_ID]), /只有學員/);
+  assert.equal(memory.rows.get("users/coach")?.realName, "教練本名");
+  memory.seed("users/A", { ...memory.rows.get("users/A")!, status: "disabled" });
+  await assert.rejects(users.updateOwnProfile("A", "不應更新", "不應更新", ["coach"]), /有效的會員/);
+  assert.equal(memory.rows.get("users/A")?.realName, "本名");
+});

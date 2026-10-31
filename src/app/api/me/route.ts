@@ -7,6 +7,7 @@ import { getUser, updateOwnProfile } from "@/lib/services/users";
 const profileSchema = z.object({
   realName: z.string().trim().min(1, "請填寫本名").max(50),
   nickname: z.string().trim().min(1, "請填寫綽號").max(50),
+  cooperatingCoachIds: z.array(z.string().min(1).refine((id) => !id.includes("/"))).min(1).max(50).optional(),
 });
 
 export async function GET() {
@@ -22,8 +23,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const principal = await requireApiPrincipal();
     const input = profileSchema.parse(await request.json());
-    await updateOwnProfile(principal.userId, input.realName, input.nickname);
-    return NextResponse.json({ ok: true });
+    const profile = await updateOwnProfile(principal.userId, input.realName, input.nickname, input.cooperatingCoachIds);
+    return NextResponse.json({ ok: true, profile });
   } catch (error) {
     return apiError(error);
   }

@@ -4,6 +4,7 @@ import { AppError, assert } from "@/lib/domain/errors";
 import { userCredits } from "./creditBatches";
 import type { CreditSummary, Role, SessionPrincipal } from "@/lib/domain/types";
 import { cooperatingCoachIds } from "@/lib/domain/cooperatingCoaches";
+import { validateCooperatingCoaches } from "./cooperatingCoaches";
 
 export function creditSummary(data: FirebaseFirestore.DocumentData | undefined): CreditSummary {
   return {
@@ -59,11 +60,23 @@ export async function listUsers(principal: SessionPrincipal, role?: Role) {
   return users.sort((a, b) => (a.realName || a.nickname || a.displayName).localeCompare(b.realName || b.nickname || b.displayName, "zh-Hant"));
 }
 
-export async function updateOwnProfile(userId: string, realName: string, nickname: string) {
-  await db.collection("users").doc(userId).update({
-    realName: realName.trim(),
-    nickname: nickname.trim(),
-    updatedAt: FieldValue.serverTimestamp(),
+export async function updateOwnProfile(userId: string, realName: string, nickname: string, ids?: string[]) {
+  const names = { realName: realName.trim(), nickname: nickname.trim() };
+  assert(names.realName.length > 0 && names.realName.length <= 50, "本名必須為 1 至 50 個字");
+  assert(names.nickname.length > 0 && names.nickname.length <= 50, "綽號必須為 1 至 50 個字");
+  return db.runTransaction(async (tx) => {
+    const ref = db.collection("users").doc(userId);
+    const user = await tx.get(ref);
+    assert(user.exists && user.data()?.status !== "disabled", "找不到有效的會員", 403, "FORBIDDEN");
+    if (ids !== undefined) assert(user.data()?.roles?.includes("student"), "只有學員可以設定自己的配合教練", 403, "FORBIDDEN");
+    const coachIds = ids !== undefined ? await validateCooperatingCoaches(tx, ids) : undefined;
+    const profile = { ...names, ...(coachIds ? { cooperatingCoachIds: coachIds } : {}) };
+    tx.update(ref, { ...profile, updatedAt: FieldValue.serverTimestamp() });
+    if (coachIds) tx.set(db.collection("auditLogs").doc(), {
+      action: "user.cooperating_coaches_updated", actorId: userId, targetId: userId,
+      metadata: { before: cooperatingCoachIds(user.data()!), after: coachIds }, createdAt: FieldValue.serverTimestamp(),
+    });
+    return profile;
   });
 }
 
