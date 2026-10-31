@@ -26,6 +26,7 @@ export type AppUser = {
   email?: string;
   roles: Role[];
   status: "active" | "disabled";
+  cooperatingCoachIds: string[];
   credits: CreditSummary;
   createdAt?: Date;
   updatedAt?: Date;

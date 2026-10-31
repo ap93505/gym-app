@@ -6,7 +6,7 @@ import { verifyCheckInQrToken } from "@/lib/auth/checkInQr";
 import { getPrincipal, requireApiPrincipal } from "@/lib/auth/session";
 import { AppError } from "@/lib/domain/errors";
 
-export const metadata: Metadata = { title: "JUZ969fitness", robots: { index: false, follow: false }, referrer: "no-referrer" };
+export const metadata: Metadata = { title: "JUZ969 fitness", robots: { index: false, follow: false }, referrer: "no-referrer" };
 
 export default async function QrCheckInPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const params = await searchParams;

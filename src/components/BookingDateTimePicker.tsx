@@ -24,6 +24,7 @@ export function BookingDateTimePicker({ value, onChange, minDate }: { value: str
         onChange={(event) => update(date, event.target.value)}
         required
       >
+        <option value="" disabled>請選擇時段</option>
         {hours.map((hour) => <option value={`${String(hour).padStart(2, "0")}:00`} key={hour}>{hour}:00－{hour + 1}:00</option>)}
       </select>
     </div>

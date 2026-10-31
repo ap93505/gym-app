@@ -6,7 +6,9 @@ import { grantPlanCredits } from "@/lib/services/users";
 import { listCreditBatches } from "@/lib/services/creditBatches";
 
 const schema = z.object({
-  planId: z.string().min(1),
+  planId: z.string().min(1).refine((id) => !id.includes("/")),
+  copies: z.number().int().min(1).max(20).default(1),
+  requestId: z.string().uuid(),
   sharedMemberIds: z.array(z.string().min(1).refine((id) => !id.includes("/"))).max(19).default([]),
 });
 
@@ -25,7 +27,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ us
     const principal = await requireApiPrincipal(["admin"]);
     const { userId } = await context.params;
     const input = schema.parse(await request.json());
-    const result = await grantPlanCredits(principal.userId, userId, input.planId, input.sharedMemberIds);
+    const result = await grantPlanCredits(principal.userId, userId, input.planId, input.sharedMemberIds, input.copies, input.requestId);
     return NextResponse.json({ ok: true, expiresAt: result.expiresAt.toISOString() });
   } catch (error) {
     return apiError(error);

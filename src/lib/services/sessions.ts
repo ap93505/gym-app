@@ -8,6 +8,7 @@ import { CHECK_IN_BEFORE_MS, CHECK_IN_AFTER_MS, isCheckInOpen, selfCheckInAction
 
 import { slotCapacityFromData } from "@/lib/domain/scheduling";
 import { getSchedulingSettings, schedulingSettingsRef } from "./settings";
+import { assertCanScheduleStudent } from "./cooperatingCoaches";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -108,6 +109,7 @@ export async function createSessions(principal: SessionPrincipal, input: CreateS
     if (!coachSnapshot.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
     assert((studentSnapshot.data()!.roles as Role[]).includes("student"), "指定帳號不是學生");
     assert((coachSnapshot.data()!.roles as Role[]).includes("coach"), "指定帳號不是教練");
+    assertCanScheduleStudent(principal, studentSnapshot.data()!, coachSnapshot.data()!);
     const planBatches = usablePlanBatches(batchSnapshot, input.planId);
     const batchPaths = allocateBatchPaths(planBatches, occurrences.length);
     if (batchPaths.length < occurrences.length) {
@@ -259,6 +261,8 @@ export async function updateSession(
     if (!newCoach.exists) throw new AppError("找不到教練", 404, "COACH_NOT_FOUND");
     assert((newStudent.data()!.roles as Role[]).includes("student"), "指定帳號不是學生");
     assert((newCoach.data()!.roles as Role[]).includes("coach"), "指定帳號不是教練");
+    assertCanScheduleStudent(principal, newStudent.data()!, newCoach.data()!);
+    if (!principal.roles.includes("admin")) assertCanScheduleStudent(principal, oldStudent.data()!, newCoach.data()!);
     if (timeChanged && Number(newSlot.data()?.count ?? 0) >= capacity) {
       throw new AppError(`新時段已達 ${capacity} 堂上限`, 409, "SLOT_FULL");
     }

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "JUZ969fitness",
+  title: "JUZ969 fitness",
   description: "簡潔、安心的私人教練課程管理",
   icons: {
     icon: { url: "/favo.ico", sizes: "16x16 32x32 48x48 256x256", type: "image/x-icon" },

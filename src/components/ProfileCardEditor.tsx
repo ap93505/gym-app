@@ -2,8 +2,12 @@
 
 import { useState } from "react";
 import { Modal } from "./Modal";
+import { CooperatingCoachesEditor } from "./CooperatingCoachesEditor";
 
 type Profile = {
+  id: string;
+  roles: string[];
+  cooperatingCoachIds: string[];
   realName: string;
   nickname: string;
   displayName: string;
@@ -56,6 +60,7 @@ export function ProfileCardEditor({ profile }: { profile: Profile }) {
           <div className="form-grid"><div><span className="muted">本名</span><p>{current.realName || "尚未填寫"}</p></div><div><span className="muted">綽號</span><p>{current.nickname || "尚未填寫"}</p></div></div>
         </section>
       </div>
+      {current.roles.includes("student") && <section className="card stack"><h3>配合教練</h3><CooperatingCoachesEditor userId={current.id} coachIds={current.cooperatingCoachIds} onSaved={(ids) => setCurrent((value) => ({ ...value, cooperatingCoachIds: ids }))} /></section>}
       <Modal open={open} title="編輯個人資料" onClose={() => setOpen(false)}>
         <form className="stack" onSubmit={save}>
           <div className="field"><label htmlFor="realName">本名</label><input id="realName" className="input" value={draft.realName} onChange={(event) => setDraft({ ...draft, realName: event.target.value })} required /></div>

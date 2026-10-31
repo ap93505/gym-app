@@ -13,6 +13,7 @@ import { BookingDateTimePicker } from "./BookingDateTimePicker";
 import { CalendarStatusLegend } from "./CalendarStatusLegend";
 import { calendarDayTitleFormat, useCalendarSwipe } from "./calendarInteractions";
 import { sessionStatusColor } from "@/lib/domain/sessionPresentation";
+import { calendarBookingInput } from "@/lib/domain/calendarBooking";
 
 import { DEFAULT_SLOT_CAPACITY, slotCapacityState } from "@/lib/domain/scheduling";
 
@@ -22,6 +23,7 @@ type UserOption = {
   realName: string;
   nickname: string;
   roles: string[];
+  status: string;
   credits: { available: number; plans: Array<{ planId: string; planName: string; sharedRemaining: number; totalRemaining: number; reserved: number; available: number }> };
 };
 
@@ -45,7 +47,7 @@ const statusLabels: Record<string, string> = {
   cancelled: "已取消",
 };
 
-function userName(user?: UserOption) {
+function userName(user?: Pick<UserOption, "realName" | "nickname" | "displayName">) {
   return user?.realName || user?.nickname || user?.displayName || "尚未選擇";
 }
 
@@ -68,6 +70,7 @@ function taipeiToday() {
 
 function recurrenceEnd(startLocal: string, frequency: SessionDraft["frequency"], count: number) {
   const start = new Date(startLocal);
+  if (Number.isNaN(start.getTime())) return null;
   if (frequency === "none" || count <= 1) return start;
   const end = new Date(start);
   if (frequency === "daily") end.setDate(end.getDate() + count - 1);
@@ -92,7 +95,7 @@ export function StaffCalendar() {
   const [slotCapacity, setSlotCapacity] = useState(DEFAULT_SLOT_CAPACITY);
   const [visibleRange, setVisibleRange] = useState<{ start: Date; end: Date } | null>(null);
   const [students, setStudents] = useState<UserOption[]>([]);
-  const [coaches, setCoaches] = useState<UserOption[]>([]);
+  const [coaches, setCoaches] = useState<Pick<UserOption, "id" | "displayName" | "realName" | "nickname">[]>([]);
   const [me, setMe] = useState<UserOption | null>(null);
   const [studentId, setStudentId] = useState("");
   const [coachId, setCoachId] = useState("");
@@ -111,7 +114,7 @@ export function StaffCalendar() {
   const selectedCoach = coaches.find((user) => user.id === coachId);
   const selectedPlan = selectedStudent?.credits.plans.find((plan) => plan.planId === (draft?.planId ?? planId));
   const validPair = !!studentId && !!coachId && !!planId && studentId !== coachId && (selectedPlan?.available ?? 0) > 0;
-  const validDraftPair = !!draft?.studentId && !!draft.coachId && !!draft.planId && draft.studentId !== draft.coachId;
+  const validDraftPair = !!draft?.studentId && !!selectedStudent && !!draft.coachId && !!draft.planId && draft.studentId !== draft.coachId && !Number.isNaN(new Date(draft.startLocal).getTime());
   const maxCount = Math.min(selectedPlan?.available ?? 0, 100);
   const recurrenceEndDate = draft ? recurrenceEnd(draft.startLocal, draft.frequency, draft.count) : null;
 
@@ -129,19 +132,19 @@ export function StaffCalendar() {
   const refreshStudents = useCallback(async () => {
     const response = await fetch("/api/users?role=student", { cache: "no-store" });
     const body = await response.json();
-    if (response.ok) setStudents(body.users ?? []);
+    if (response.ok) setStudents((body.users ?? []).filter((user: UserOption) => user.status !== "disabled"));
   }, []);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/me", { cache: "no-store" }).then((response) => response.json()),
       fetch("/api/users?role=student", { cache: "no-store" }).then((response) => response.json()),
-      fetch("/api/users?role=coach", { cache: "no-store" }).then((response) => response.json()),
+      fetch("/api/coaches", { cache: "no-store" }).then((response) => response.json()),
     ]).then(([meBody, studentBody, coachBody]) => {
       const current = meBody.user as UserOption;
       setMe(current);
-      setStudents(studentBody.users ?? []);
-      setCoaches(coachBody.users ?? []);
+      setStudents((studentBody.users ?? []).filter((user: UserOption) => user.status !== "disabled"));
+      setCoaches(coachBody.coaches ?? []);
       if (current?.roles.includes("coach") && !current?.roles.includes("admin")) setCoachId(current.id);
     });
   }, []);
@@ -196,19 +199,20 @@ export function StaffCalendar() {
     return events;
   }, [slots, visibleRange, slotCapacity]);
 
-  function openCreate(start = new Date()) {
-    setDraft({ studentId, coachId, planId, startLocal: localInput(start), frequency: "none", count: 1 });
+  function openCreate(start = new Date(), allDay = false) {
+    void refreshStudents();
+    setDraft({ studentId, coachId, planId, startLocal: calendarBookingInput(start, allDay), frequency: "none", count: 1 });
     setSelected(null); setEditing(true); setCancelling(false); setMessage("");
   }
 
   function receive(info: EventReceiveArg) {
     const start = info.event.start;
     info.revert();
-    if (start) openCreate(start);
+    if (start) openCreate(start, info.event.allDay);
   }
 
   function dateClick(info: DateClickArg) {
-    if (!info.allDay) openCreate(info.date);
+    openCreate(info.date, info.allDay);
   }
 
   function eventClick(info: EventClickArg) {
@@ -224,7 +228,8 @@ export function StaffCalendar() {
 
   async function saveSession(event: React.FormEvent) {
     event.preventDefault();
-    if (!draft) return;
+    if (!draft || saving) return;
+    if (!validDraftPair) { setMessage("請選擇可排課的學員、教練、方案與時段。"); return; }
     if (draft.studentId === draft.coachId) {
       setMessage("教練與學生不可為同一人");
       return;
@@ -266,7 +271,7 @@ export function StaffCalendar() {
     setSaving(false);
   }
 
-  const canEditSelected = !!selected && selected.status === "scheduled" && !!me && (isAdmin || (me.roles.includes("coach") && me.id === selected.coachId));
+  const canEditSelected = !!selected && selected.status === "scheduled" && !!me && (isAdmin || (me.roles.includes("coach") && me.id === selected.coachId && students.some((student) => student.id === selected.studentId)));
 
   return <>
     {message && !selected && !draft && <div className="notice error" style={{ marginBottom: 16 }}>{message}</div>}

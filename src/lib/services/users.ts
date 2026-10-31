@@ -2,7 +2,8 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/lib/firebase/admin";
 import { AppError, assert } from "@/lib/domain/errors";
 import { userCredits } from "./creditBatches";
-import type { CreditSummary, Role } from "@/lib/domain/types";
+import type { CreditSummary, Role, SessionPrincipal } from "@/lib/domain/types";
+import { cooperatingCoachIds } from "@/lib/domain/cooperatingCoaches";
 
 export function creditSummary(data: FirebaseFirestore.DocumentData | undefined): CreditSummary {
   return {
@@ -26,16 +27,22 @@ export async function getUser(userId: string) {
     email: data.email,
     roles: (data.roles ?? ["student"]) as Role[],
     status: data.status ?? "active",
+    cooperatingCoachIds: cooperatingCoachIds(data),
     credits,
   };
 }
 
-export async function listUsers(role?: Role) {
+export async function listUsers(principal: SessionPrincipal, role?: Role) {
+  const isAdmin = principal.roles.includes("admin");
+  assert(isAdmin || principal.roles.includes("coach"), "沒有權限", 403, "FORBIDDEN");
+  // Coaches cannot bypass the student scope by omitting or changing the role filter.
+  if (!isAdmin) role = "student";
   let query: FirebaseFirestore.Query = db.collection("users");
   if (role) query = query.where("roles", "array-contains", role);
   else query = query.orderBy("displayName");
   const snapshot = await query.get();
-  const users = await Promise.all(snapshot.docs.map(async (doc) => {
+  const visible = snapshot.docs.filter((doc) => isAdmin || (doc.data().status !== "disabled" && cooperatingCoachIds(doc.data()).includes(principal.userId)));
+  const users = await Promise.all(visible.map(async (doc) => {
     const data = doc.data();
     const credits = await userCredits(doc.ref);
     return {
@@ -45,6 +52,7 @@ export async function listUsers(role?: Role) {
       nickname: data.nickname ?? "",
       roles: data.roles ?? ["student"],
       status: data.status ?? "active",
+      cooperatingCoachIds: cooperatingCoachIds(data),
       credits,
     };
   }));
@@ -141,11 +149,4 @@ export async function grantCredits(actorId: string, userId: string, quantity: nu
   return { expiresAt };
 }
 
-export async function grantPlanCredits(actorId: string, userId: string, planId: string, sharedMemberIds: string[] = []) {
-  const plan = await db.collection("plans").doc(planId).get();
-  if (!plan.exists || plan.data()?.active !== true) throw new AppError("找不到可使用的課堂方案", 404, "PLAN_NOT_FOUND");
-  const quantity = Number(plan.data()?.sessions ?? 0);
-  assert(Number.isInteger(quantity) && quantity > 0, "方案堂數設定錯誤");
-  const planName = String(plan.data()?.name ?? planId);
-  return grantCredits(actorId, userId, quantity, planId, planName, `方案：${planName}`, sharedMemberIds);
-}
+export { grantPlanCredits } from "./planGrants";

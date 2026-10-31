@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "JUZ969fitness",
-    short_name: "JUZ969fitness",
+    name: "JUZ969 fitness",
+    short_name: "JUZ969 fitness",
     description: "簡潔、安心的私人教練課程管理",
     lang: "zh-Hant",
     start_url: "/",

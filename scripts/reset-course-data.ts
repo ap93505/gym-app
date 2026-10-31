@@ -16,7 +16,7 @@ if (!values.project || !values.database || values.project !== projectId || value
 }
 if (process.env.FIRESTORE_EMULATOR_HOST) throw new Error("This command targets the configured cloud database, not an emulator.");
 const db = getFirestore(initializeApp({ credential: applicationDefault(), projectId }), databaseId);
-const courseCollections = ["sessions", "recurrenceSeries", "timeSlots", "coachSlotLocks", "studentSlotLocks", "creditLedgers"];
+const courseCollections = ["sessions", "recurrenceSeries", "timeSlots", "coachSlotLocks", "studentSlotLocks", "creditLedgers", "creditGrantRequests"];
 const names = [...courseCollections, "users", "plans", "settings", "auditLogs", "creditBatches"];
 const queries = names.map((name) => name === "creditBatches" ? db.collectionGroup(name) : db.collection(name));
 

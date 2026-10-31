@@ -12,6 +12,7 @@ async function main() {
     "coachSlotLocks",
     "studentSlotLocks",
     "creditLedgers",
+    "creditGrantRequests",
   ];
 
   const deleted: Record<string, number> = {};
